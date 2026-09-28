@@ -38,9 +38,11 @@ HERE = Path(__file__).parent
 UI = HERE / "ui"
 PRESETS = HERE / "presets"
 RESOLUTIONS = [256, 512, 1024, 2048]
-REPO = HERE.parent.parent
-FULL_ROOT = REPO.parent / "MegaSurvivalWorld"                       # full-resolution files, outside the repository
-PACKAGE_ROOT = REPO / "Assets" / "StreamingAssets" / "World"       # the client package
+# the game repository (its client package receives the exported map): MEGASURVIVAL_GAME, or
+# the MegaSurvival folder beside this repository
+GAME = Path(os.environ.get("MEGASURVIVAL_GAME", HERE.parent / "MegaSurvival"))
+FULL_ROOT = GAME.parent / "MegaSurvivalWorld"                       # full-resolution files, outside both repositories
+PACKAGE_ROOT = GAME / "Assets" / "StreamingAssets" / "World"       # the client package
 PROTECTED_MAPS = {"worldgen-dev"}                                  # the map in the game today (WORLDGEN.md section 6)
 EXPORT = {"proc": None, "full": None}
 PIPELINE = Pipeline(STAGES)

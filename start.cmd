@@ -1,5 +1,5 @@
 @echo off
-rem World generator tuning tool (WORLDGEN.md section 4): double-click to start.
+rem World generator tuning tool (WORLDGEN.md section 4, in the game repository): double-click to start.
 cd /d "%~dp0"
 if not exist ".venv\Scripts\python.exe" (
   echo Creating the Python environment...
