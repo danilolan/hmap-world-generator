@@ -1,0 +1,365 @@
+// World generator tuning tool (WORLDGEN.md section 4). The page builds itself
+// from /api/stages: one card per stage, one control per parameter.
+
+const $ = (id) => document.getElementById(id);
+const state = { stages: [], defaults: {}, params: {}, seed: 1, res: 512, selected: null, view: {}, mode: "2d",
+  detail: false, cx: 0.5, cy: 0.5, detailKm: 2, scale: 1, heightFollow: true };
+const SCALES = [1, 1.25, 1.5, 2, 2.5, 3, 4];
+let requestId = 0, timer = null, three = null, lastHeight = null;
+
+function save() {
+  try { localStorage.setItem("worldgen", JSON.stringify({ params: state.params, defaults: state.defaults, seed: state.seed,
+    res: state.res, scale: state.scale, heightFollow: state.heightFollow, selected: state.selected, view: state.view }));
+  } catch (e) {}
+}
+function load() {
+  try { return JSON.parse(localStorage.getItem("worldgen") || "{}"); } catch (e) { return {}; }
+}
+
+async function api(path, body) {
+  const r = await fetch(path, body ? { method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body) } : undefined);
+  const j = await r.json();
+  if (!r.ok) throw new Error(j.error || r.statusText);
+  return j;
+}
+
+function fmt(p, v) {
+  if (p.kind === "int") return String(v);
+  const s = p.step || 0.01;
+  const d = s >= 1 ? 0 : Math.min(4, Math.ceil(-Math.log10(s)));
+  return Number(v).toFixed(d);
+}
+
+function buildStages() {
+  const root = $("stages");
+  root.innerHTML = "";
+  state.stages.forEach((st, i) => {
+    const card = document.createElement("div");
+    card.className = "stage" + (st.id === state.selected ? " selected" : "");
+    card.innerHTML = `<div class="stageHead"><span class="num">${i + 1}</span><strong>${st.title}</strong></div>
+      <div class="stageBody"><div class="stageDesc">${st.description || ""}</div></div>`;
+    card.querySelector(".stageHead").onclick = () => select(st.id);
+    const body = card.querySelector(".stageBody");
+    st.params.filter((p) => !p.advanced).forEach((p) => body.appendChild(control(st, p)));
+    const adv = st.params.filter((p) => p.advanced);
+    if (adv.length) {
+      const det = document.createElement("details");
+      det.innerHTML = `<summary>Advanced (${adv.length})</summary>`;
+      adv.forEach((p) => det.appendChild(control(st, p)));
+      body.appendChild(det);
+    }
+    if (st.id === "export") body.appendChild(exportBox());
+    root.appendChild(card);
+  });
+}
+
+function control(st, p) {
+  const wrap = document.createElement("div");
+  wrap.className = "param";
+  const val = state.params[st.id][p.key];
+  let input;
+  if (p.kind === "bool") {
+    wrap.innerHTML = `<label class="row"><span>${p.label}</span><input type="checkbox"></label>`;
+    input = wrap.querySelector("input");
+    input.checked = !!val;
+    input.onchange = () => set(st, p, input.checked);
+  } else if (p.kind === "choice") {
+    wrap.innerHTML = `<div class="row"><span>${p.label}</span><select></select></div>`;
+    input = wrap.querySelector("select");
+    p.choices.forEach((c) => input.add(new Option(c, c, false, c === val)));
+    input.onchange = () => set(st, p, input.value);
+  } else {
+    wrap.innerHTML = `<div class="row"><span>${p.label}</span><span class="val"></span></div>
+      <input type="range" min="${p.min}" max="${p.max}" step="${p.step}">`;
+    input = wrap.querySelector("input");
+    const out = wrap.querySelector(".val");
+    input.value = val;
+    out.textContent = fmt(p, val);
+    input.oninput = () => { out.textContent = fmt(p, input.value); set(st, p, Number(input.value)); };
+  }
+  if (p.help) wrap.insertAdjacentHTML("beforeend", `<div class="help">${p.help}</div>`);
+  return wrap;
+}
+
+function set(st, p, v) {
+  state.params[st.id][p.key] = v;
+  if (state.selected !== st.id) select(st.id, false);
+  schedule();
+}
+
+function select(id, rerender = true) {
+  state.selected = id;
+  document.querySelectorAll(".stage").forEach((el, i) =>
+    el.classList.toggle("selected", state.stages[i].id === id));
+  buildTabs();
+  if (rerender) schedule(0);
+}
+
+function current() { return state.stages.find((s) => s.id === state.selected); }
+
+function buildTabs() {
+  const st = current(), tabs = $("viewTabs");
+  tabs.innerHTML = "";
+  if (!st) return;
+  if (!state.view[st.id] || !st.views.find((v) => v.id === state.view[st.id])) state.view[st.id] = st.views[0]?.id;
+  st.views.forEach((v) => {
+    const b = document.createElement("button");
+    b.textContent = v.label;
+    b.className = v.id === state.view[st.id] ? "active" : "";
+    b.onclick = () => { state.view[st.id] = v.id; buildTabs(); schedule(0); };
+    tabs.appendChild(b);
+  });
+  $("mode3d").disabled = !st.has_height;
+  if (!st.has_height && state.mode === "3d") setMode("2d");
+  $("detailBtn").disabled = !st.has_detail;
+  $("detailSize").disabled = !st.has_detail;
+  if (!st.has_detail) state.detail = false;
+  $("detailBtn").classList.toggle("active", state.detail);
+  $("viewTabs").style.visibility = state.detail ? "hidden" : "visible";
+}
+
+// seed, preview resolution and world scale: what every request shares
+function world() {
+  return { seed: state.seed, res: state.res, scale: state.scale, height_follow: state.heightFollow };
+}
+
+function schedule(delay = 120) {
+  clearTimeout(timer);
+  timer = setTimeout(renderNow, delay);
+  save();
+}
+
+async function renderNow() {
+  const st = current();
+  if (!st) return;
+  const id = ++requestId;
+  $("busy").classList.remove("hidden");
+  try {
+    const out = state.detail
+      ? await api("/api/detail", { ...world(), params: state.params, stage: st.id,
+          cx: state.cx, cy: state.cy, size_km: state.detailKm, height: state.mode === "3d" })
+      : await api("/api/render", { ...world(), params: state.params, stage: st.id,
+          view: state.view[st.id], height: state.mode === "3d" });
+    if (id !== requestId) return;
+    $("map").src = out.image;
+    $("stats").textContent = Object.entries(out.stats || {}).map(([k, v]) => `${k}: ${v}`).join("   ·   ");
+    $("timing").textContent = `${out.ms} ms  (` + out.timings.map((t) => `${t.stage} ${t.cached ? "cached" : t.ms + " ms"}`).join(", ") + ")";
+    if (out.height) { lastHeight = out.height; update3d(out.image); }
+  } catch (e) {
+    if (id === requestId) $("stats").textContent = "Error: " + e.message;
+  } finally {
+    if (id === requestId) $("busy").classList.add("hidden");
+  }
+}
+
+// ---------------------------------------------------------------- export
+function exportBox() {
+  const box = document.createElement("div");
+  box.className = "exportBox";
+  box.innerHTML = `<div class="param"><div class="row"><span>Map id</span><input id="mapId" type="text"></div>
+      <div class="help">Folder name under Assets/StreamingAssets/World/ (and the full-resolution files beside the repository)</div></div>
+    <div class="param"><div class="row"><span>Grid</span><select id="exportRes">
+      <option value="2048">2048² (31 m): the final map</option><option value="1024">1024² (62 m): a quick test</option></select></div>
+      <div class="help">The grid the stages run on before the 2 m detail; 2048² takes ~20-30 min in all</div></div>
+    <button id="exportBtn">Export the map</button>
+    <div id="exportStatus" class="help"></div>`;
+  box.querySelector("#mapId").value = `world-${state.seed}`;
+  box.querySelector("#exportBtn").onclick = () => startExport(false);
+  return box;
+}
+
+async function startExport(overwrite) {
+  const body = { ...world(), res: Number($("exportRes").value), params: state.params, map_id: $("mapId").value.trim(), overwrite };
+  const out = await api("/api/export", body);
+  if (out.exists) {
+    if (confirm(`${body.map_id} exists. Replace it?
+${out.package_dir}
+${out.full_dir}`)) return startExport(true);
+    return;
+  }
+  if (out.error) { $("exportStatus").textContent = out.error; return; }
+  pollExport();
+}
+
+async function pollExport() {
+  let st;
+  try { st = await api("/api/export"); } catch (e) { return; }
+  const el = $("exportStatus");
+  if (!el || st.state === "none") return;
+  const btn = $("exportBtn");
+  if (btn) btn.disabled = st.state === "running";
+  if (st.state === "running") {
+    const eta = st.eta_s != null ? `, ~${Math.ceil(st.eta_s / 60)} min left` : "";
+    el.textContent = `${st.map_id}: ${st.step}` + (st.step === "tiles" ? ` ${st.done}/${st.total} files${eta}` : "…");
+    setTimeout(pollExport, 3000);
+  } else if (st.state === "done") {
+    el.textContent = `${st.map_id} exported in ${st.minutes} min (spawn corner ${st.spawn}). ${st.package_dir}`;
+  } else {
+    el.textContent = `${st.map_id || "export"} failed: ${st.error}`;
+    console.error(st.trace);
+  }
+}
+
+// ---------------------------------------------------------------- 3D view
+function setMode(m) {
+  state.mode = m;
+  $("mode2d").classList.toggle("active", m === "2d");
+  $("mode3d").classList.toggle("active", m === "3d");
+  $("map").classList.toggle("hidden", m === "3d");
+  $("three").classList.toggle("hidden", m !== "3d");
+  $("exagLabel").classList.toggle("hidden", m !== "3d");
+  schedule(0);
+}
+
+async function ensure3d() {
+  if (three) return three;
+  const THREE = await import("three");
+  const { OrbitControls } = await import("three/addons/controls/OrbitControls.js");
+  const el = $("three");
+  const renderer = new THREE.WebGLRenderer({ antialias: true });
+  renderer.setPixelRatio(window.devicePixelRatio);
+  el.appendChild(renderer.domElement);
+  const scene = new THREE.Scene();
+  scene.background = new THREE.Color(0x0e1013);
+  const camera = new THREE.PerspectiveCamera(45, 1, 0.01, 100);
+  camera.position.set(0, 0.9, 1.1);
+  const controls = new OrbitControls(camera, renderer.domElement);
+  controls.enableDamping = true;
+  scene.add(new THREE.AmbientLight(0xffffff, 0.9));
+  const resize = () => {
+    const w = el.clientWidth, h = el.clientHeight;
+    renderer.setSize(w, h); camera.aspect = w / Math.max(h, 1); camera.updateProjectionMatrix();
+  };
+  new ResizeObserver(resize).observe(el);
+  resize();
+  (function loop() { controls.update(); renderer.render(scene, camera); requestAnimationFrame(loop); })();
+  three = { THREE, scene, mesh: null };
+  return three;
+}
+
+async function update3d(imageUrl) {
+  if (state.mode !== "3d" || !lastHeight) return;
+  const t = await ensure3d(), { THREE } = t;
+  const n = lastHeight.n;
+  const bytes = Uint8Array.from(atob(lastHeight.data), (c) => c.charCodeAt(0));
+  const h = new Float32Array(bytes.buffer);
+  // the detail window is small: true scale (slider 3 = 1x) reads right there
+  const exag = Number($("exag").value) / (state.detail ? 3 : 1);
+  const world = n * lastHeight.cell_m;
+  const geo = new THREE.PlaneGeometry(1, 1, n - 1, n - 1);
+  geo.rotateX(-Math.PI / 2);
+  const pos = geo.attributes.position;
+  for (let i = 0; i < pos.count; i++) pos.setY(i, Math.max(h[i], 0) / world * exag);
+  geo.computeVertexNormals();
+  const tex = new THREE.TextureLoader().load(imageUrl);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  const mat = new THREE.MeshBasicMaterial({ map: tex });
+  if (t.mesh) { t.scene.remove(t.mesh); t.mesh.geometry.dispose(); t.mesh.material.dispose(); }
+  t.mesh = new THREE.Mesh(geo, mat);
+  t.scene.add(t.mesh);
+}
+
+// ---------------------------------------------------------------- gallery, presets
+async function gallery() {
+  const st = current();
+  $("gallery").classList.remove("hidden");
+  const grid = $("galleryGrid");
+  grid.innerHTML = "<div class='muted'>Rendering…</div>";
+  const seeds = Array.from({ length: 12 }, () => Math.floor(Math.random() * 1e6));
+  try {
+    const thumbs = await api("/api/gallery", { ...world(), seeds, res: 160, params: state.params, stage: st.id, view: state.view[st.id] });
+    grid.innerHTML = "";
+    thumbs.forEach((t) => {
+      const d = document.createElement("div");
+      d.className = "thumb";
+      d.innerHTML = `<img src="${t.image}"><div>seed ${t.seed}</div>`;
+      d.onclick = () => { setSeed(t.seed); $("gallery").classList.add("hidden"); };
+      grid.appendChild(d);
+    });
+  } catch (e) { grid.textContent = "Error: " + e.message; }
+}
+
+function setSeed(s) { state.seed = Math.max(0, Math.floor(s)); $("seed").value = state.seed; schedule(0); }
+
+async function refreshPresets() {
+  const list = await api("/api/presets"), sel = $("presetList");
+  sel.innerHTML = "<option value=''>Presets…</option>";
+  list.forEach((n) => sel.add(new Option(n, n)));
+}
+
+// ---------------------------------------------------------------- start
+async function init() {
+  const info = await api("/api/stages");
+  const saved = load();
+  state.stages = info.stages;
+  state.defaults = info.defaults;
+  state.params = {};
+  // Keep only the values the user actually changed: a saved value equal to the default it was saved
+  // with follows the current default (defaults evolve while the stages are tuned). Saves from before
+  // defaults were recorded cannot tell, so they start from the current defaults.
+  for (const st of info.stages) {
+    const now = { ...info.defaults[st.id] };
+    const was = saved.defaults?.[st.id], mine = saved.params?.[st.id];
+    if (was && mine) for (const k of Object.keys(now)) if (k in mine && mine[k] !== was[k]) now[k] = mine[k];
+    state.params[st.id] = now;
+  }
+  state.seed = saved.seed ?? 1;
+  state.res = info.resolutions.includes(saved.res) ? saved.res : 512;
+  state.view = saved.view || {};
+  state.selected = info.stages.find((s) => s.id === saved.selected)?.id || info.stages[0]?.id;
+  info.resolutions.forEach((r) => $("res").add(new Option(`${r}² (${(info.world_m / r).toFixed(0)} m/px)`, r, false, r === state.res)));
+  state.scale = SCALES.includes(saved.scale) ? saved.scale : 1;
+  state.heightFollow = saved.heightFollow ?? true;
+  SCALES.forEach((s) => $("scale").add(new Option(s === 1 ? "1× (real)" : `${s}×`, s, false, s === state.scale)));
+  $("scale").onchange = () => { state.scale = Number($("scale").value); schedule(0); };
+  $("heightFollow").checked = state.heightFollow;
+  $("heightFollow").onchange = () => { state.heightFollow = $("heightFollow").checked; schedule(0); };
+  $("seed").value = state.seed;
+  $("seed").onchange = () => setSeed(Number($("seed").value));
+  $("randomSeed").onclick = () => setSeed(Math.floor(Math.random() * 1e6));
+  $("res").onchange = () => { state.res = Number($("res").value); schedule(0); };
+  $("detailBtn").onclick = () => { state.detail = !state.detail; buildTabs(); schedule(0); };
+  $("detailSize").onchange = () => { state.detailKm = Number($("detailSize").value); if (state.detail) schedule(0); };
+  $("map").onclick = (ev) => {
+    const st = current();
+    if (!st?.has_detail || state.detail) return;
+    const r = $("map").getBoundingClientRect();
+    state.cx = (ev.clientX - r.left) / r.width;
+    state.cy = (ev.clientY - r.top) / r.height;
+    state.detail = true;
+    buildTabs();
+    schedule(0);
+  };
+  $("mode2d").onclick = () => setMode("2d");
+  $("mode3d").onclick = () => setMode("3d");
+  $("exag").oninput = () => update3d($("map").src);
+  $("galleryBtn").onclick = gallery;
+  $("galleryMore").onclick = gallery;
+  $("galleryClose").onclick = () => $("gallery").classList.add("hidden");
+  $("resetStage").onclick = () => { const st = current(); state.params[st.id] = { ...state.defaults[st.id] }; buildStages(); schedule(0); };
+  $("presetSave").onclick = async () => {
+    const name = prompt("Preset name");
+    if (!name) return;
+    await api("/api/presets", { name, data: { seed: state.seed, scale: state.scale, heightFollow: state.heightFollow, params: state.params } });
+    refreshPresets();
+  };
+  $("presetLoad").onclick = async () => {
+    const name = $("presetList").value;
+    if (!name) return;
+    const p = await api("/api/presets/" + encodeURIComponent(name));
+    for (const st of state.stages) state.params[st.id] = { ...state.defaults[st.id], ...(p.params?.[st.id] || {}) };
+    if (p.seed != null) { state.seed = p.seed; $("seed").value = p.seed; }
+    if (SCALES.includes(p.scale)) { state.scale = p.scale; $("scale").value = p.scale; }
+    if (p.heightFollow != null) { state.heightFollow = p.heightFollow; $("heightFollow").checked = p.heightFollow; }
+    buildStages(); schedule(0);
+  };
+  buildStages();
+  buildTabs();
+  refreshPresets();
+  pollExport();
+  if (state.stages.length === 0) $("stats").textContent = "No stages yet.";
+  else schedule(0);
+}
+
+init().catch((e) => { $("stats").textContent = "Could not reach the generator server: " + e.message; });

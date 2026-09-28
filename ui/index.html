@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>World Generator</title>
+  <link rel="stylesheet" href="/ui/style.css">
+  <script type="importmap">
+    { "imports": {
+        "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+        "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/" } }
+  </script>
+</head>
+<body>
+  <header>
+    <div class="brand">World Generator</div>
+    <span class="muted" title="Stage 0: the world side is fixed">World 64 × 64 km</span>
+    <label>Seed <input id="seed" type="number" value="1" min="0" step="1"></label>
+    <button id="randomSeed" title="Random seed">Random</button>
+    <button id="galleryBtn" title="Thumbnails of many seeds">Seed gallery</button>
+    <label>Preview <select id="res"></select></label>
+    <label title="Shrinks everything but the layout: ranges narrower (and lower), rivers thinner, bays smaller. The map then shows a larger world, compressed">World scale
+      <select id="scale"></select></label>
+    <label title="Heights shrink with the world scale (a range half as wide is half as high)"><input id="heightFollow" type="checkbox" checked> Heights follow</label>
+    <span class="spacer"></span>
+    <select id="presetList"><option value="">Presets…</option></select>
+    <button id="presetLoad">Load</button>
+    <button id="presetSave">Save as…</button>
+    <button id="resetStage" title="Reset the selected stage's sliders">Reset stage</button>
+  </header>
+  <main>
+    <aside id="stages"></aside>
+    <section id="viewer">
+      <div class="toolbar">
+        <div id="viewTabs" class="tabs"></div>
+        <span class="spacer"></span>
+        <div class="tabs">
+          <button id="detailBtn" title="High-resolution window: click a point on the map">Detail</button>
+          <select id="detailSize" title="Detail window size">
+            <option value="1">1 km</option><option value="2" selected>2 km</option>
+            <option value="4">4 km</option><option value="8">8 km</option>
+          </select>
+        </div>
+        <div class="tabs">
+          <button id="mode2d" class="active">2D</button>
+          <button id="mode3d">3D</button>
+        </div>
+        <label id="exagLabel" class="hidden">Vertical × <input id="exag" type="range" min="1" max="8" step="0.5" value="3"></label>
+      </div>
+      <div id="canvasWrap">
+        <img id="map" alt="">
+        <div id="three" class="hidden"></div>
+        <div id="busy" class="hidden">Computing…</div>
+      </div>
+      <div class="status"><span id="stats"></span><span class="spacer"></span><span id="timing"></span></div>
+    </section>
+  </main>
+  <div id="gallery" class="hidden">
+    <div class="galleryBox">
+      <div class="galleryHead">
+        <strong>Seed gallery</strong> <span class="muted">— click a world to use its seed</span>
+        <span class="spacer"></span>
+        <button id="galleryMore">Other seeds</button>
+        <button id="galleryClose">Close</button>
+      </div>
+      <div id="galleryGrid"></div>
+    </div>
+  </div>
+  <script type="module" src="/ui/app.js"></script>
+</body>
+</html>

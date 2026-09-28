@@ -1,0 +1,4 @@
+numpy>=2.2
+scipy>=1.15
+numba>=0.61
+pillow>=11
