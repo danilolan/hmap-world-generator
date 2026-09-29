@@ -400,8 +400,9 @@ class Soil(Stage):
 def tile_ground(ctx, data, p, x_m, y_m, h, water):
     """The ground of each 2 m tile at world points of a regular window (TileGround values: rock,
     gravel, sand, clay, dirt), from the soil and the relief `h` with its water carved in. Also
-    returns where the grass would be dry, bare ground, salt, ground within ~6 m of water, and
-    the slope. `p` are this stage's parameters. Shared by the detail window and the export."""
+    returns the soil depth over the rock (m; the tile is rock where it is under the
+    rock_depth_m knob), where the grass would be dry, bare ground, salt, ground within ~6 m
+    of water, and the slope. `p` are this stage's parameters. Shared by the detail window and the export."""
     coords = [y_m / ctx.cell_m - 0.5, x_m / ctx.cell_m - 0.5]
     at = lambda a: ndimage.map_coordinates(np.asarray(a, np.float32), coords, order=1, mode="nearest")
     step = float(x_m[0, 1] - x_m[0, 0])
@@ -433,5 +434,5 @@ def tile_ground(ctx, data, p, x_m, y_m, h, water):
     salt = at(data["salt_flat"]) > 0.5
     dry = at(data["aridity"]) + 0.08 * n2 + 0.04 * n1 < 0.5
     bare = (ground == ROCK) | (ground == GRAVEL) | (ground == SAND) | salt
-    return {"ground": ground, "dry": dry, "bare": bare, "salt": salt, "near_water": near_water & ~water,
+    return {"ground": ground, "depth": depth, "dry": dry, "bare": bare, "salt": salt, "near_water": near_water & ~water,
             "slope": slope}

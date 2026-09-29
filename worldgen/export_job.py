@@ -46,6 +46,7 @@ HEIGHT_STRIDE, TILE_STRIDE, ECO = 4, 8, 8
 SEA_LEVEL_RAW = 10000
 UNIT_M, ORIGIN_M = 0.1, -1000.0
 ECOLOGY_VERSION = 1
+SOIL_UNIT_M = 0.1                # soil depth files: u8 per corner, 0.1 m (0-25.5 m)
 
 
 def status(path, **kw):
@@ -123,11 +124,12 @@ def block(ctx, data, X0, Z0, n=BLOCK, margin=MARGIN):
     flip = lambda a: np.ascontiguousarray(a[::-1])
     raw_h = np.clip(np.rint((t["h"].astype(np.float64) - ORIGIN_M) / UNIT_M), 0, 65535).astype("<u2")
     raw_t = X.tile_raw(t["ground"], t["cover"], t["growth"])
+    raw_d = np.clip(np.rint(base["depth"] / SOIL_UNIT_M), 0, 255).astype(np.uint8)
     eco = (biome.astype(np.uint16) & 0x3F) | ((dens.astype(np.uint16) & 0xF) << 6) | ((species.astype(np.uint16) & 0x3F) << 10)
     mod = sum((mods[k].astype(np.uint16) & 0xF) << (4 * i) for i, k in enumerate(F.MODIFIERS))
     still = np.where(t["lake"] > 0, t["lake"], np.where(t["pond"] > 0, t["pond"] + data["_lake_count"], 0))
     still_cell = still.reshape(c, ECO, c, ECO).max(axis=(1, 3))
-    return {"h": flip(raw_h[inner, inner]), "t": flip(raw_t[inner, inner]), "eco": flip(eco[ci, ci].astype("<u2")),
+    return {"h": flip(raw_h[inner, inner]), "t": flip(raw_t[inner, inner]), "d": flip(raw_d[inner, inner]), "eco": flip(eco[ci, ci].astype("<u2")),
             "mod": flip(mod[ci, ci].astype("<u2")), "still": flip(still_cell[ci, ci].astype("<u2")),
             "land": int((t["h"][inner, inner] > 0).sum())}
 
@@ -138,6 +140,7 @@ def _file(job):
     t0 = time.time()
     H = np.zeros((FILE, FILE), "<u2")
     T = np.zeros((FILE, FILE), "<u2")
+    D = np.zeros((FILE, FILE), np.uint8)
     E = np.zeros((FILE // ECO, FILE // ECO), "<u2")
     M = np.zeros_like(E)
     S = np.zeros_like(E)
@@ -147,12 +150,14 @@ def _file(job):
             b = block(ctx, data, fx * FILE + bx, fz * FILE + bz)
             H[bz:bz + BLOCK, bx:bx + BLOCK] = b["h"]
             T[bz:bz + BLOCK, bx:bx + BLOCK] = b["t"]
+            D[bz:bz + BLOCK, bx:bx + BLOCK] = b["d"]
             e = slice(bz // ECO, (bz + BLOCK) // ECO), slice(bx // ECO, (bx + BLOCK) // ECO)
             E[e], M[e], S[e] = b["eco"], b["mod"], b["still"]
             land += b["land"]
     out = _W["out"]
     H.tofile(Path(out["heights_dir"]) / f"h_{fx:02}_{fz:02}.u16")
     T.tofile(Path(out["tiles_dir"]) / f"t_{fx:02}_{fz:02}.u16")
+    D.tofile(Path(out["soil_dir"]) / f"s_{fx:02}_{fz:02}.u8")
     fh, ft, fe = FILE // HEIGHT_STRIDE, FILE // TILE_STRIDE, FILE // ECO
     far_h = _open("far_heights", (CORNERS // HEIGHT_STRIDE,) * 2)
     far_h[fz * fh:(fz + 1) * fh, fx * fh:(fx + 1) * fh] = H[::HEIGHT_STRIDE, ::HEIGHT_STRIDE]
@@ -257,9 +262,10 @@ def run(job_path):
     save_data(ctx, data, work)
     (full / "heights").mkdir(exist_ok=True)
     (full / "tiles").mkdir(exist_ok=True)
+    (full / "soil").mkdir(exist_ok=True)
     for d in ("far", "ecology", "water"):
         (package / d).mkdir(parents=True, exist_ok=True)
-    out = {"heights_dir": str(full / "heights"), "tiles_dir": str(full / "tiles"),
+    out = {"heights_dir": str(full / "heights"), "tiles_dir": str(full / "tiles"), "soil_dir": str(full / "soil"),
            "far_heights": str(package / "far" / "heights_8m.u16"), "far_tiles": str(package / "far" / "tiles_16m.u16"),
            "ecology": str(package / "ecology" / "ecology_16m.u16"), "modifiers": str(package / "ecology" / "modifiers_16m.u16"),
            "still": str(package / "water" / "still_16m.u16")}
@@ -295,6 +301,10 @@ def run(job_path):
         "axes": "corner (x, z) = world (2x, 2z) m, +X east, +Z north, row 0 = z 0 = south edge, little-endian uint16",
         "floorDepthM": float(data["relief_params"]["floor_m"]),
         "ecologyStride": ECO, "ecologyVersion": ECOLOGY_VERSION,
+        "soilDepth": {"files": "soil/s_{fx:02}_{fz:02}.u8", "unit_m": SOIL_UNIT_M, "max_m": 255 * SOIL_UNIT_M,
+                      "about": "soil over the rock at each corner (same grid, files and rows as the heights); rock "
+                               "height = corner height - depth; 0 at every corner of a rock tile, at least 0.1 m "
+                               "elsewhere on land"},
         "ecology": {"file": "ecology/ecology_16m.u16", "bits": "biome 0-5, tree density 6-9, species 10-15",
                     "biomes": [n for n, _ in B.BIOMES], "species": [n for n, _, _ in F.SPECIES],
                     "modifiers_file": "ecology/modifiers_16m.u16", "modifier_bits": "flowers 0-3, rockiness 4-7, "

@@ -89,6 +89,22 @@ def tile_slope(h, step=2.0):
     return s
 
 
+def corners_of(tiles):
+    """Corners touched by any of the given tiles (rows along +y: the tile of corner (r, c)
+    reaches the corners (r - 1, c + 1), so corner (r, c) is touched by the tiles (r, c),
+    (r, c - 1), (r + 1, c) and (r + 1, c - 1))."""
+    left = np.roll(tiles, 1, 1)
+    below = np.roll(tiles, -1, 0)
+    return tiles | left | below | np.roll(below, 1, 1)
+
+
+def tile_corners_all(corners):
+    """Tiles whose four corners are all set."""
+    right = np.roll(corners, -1, 1)
+    up = np.roll(corners, 1, 0)
+    return corners & right & up & np.roll(up, -1, 1)
+
+
 def tiles_ground(ctx, data, x_m, y_m):
     """Heights, water and the ground of each tile: stage 11's shaped shore with stage 7's
     water carved in, stage 8's soil rules, the shore's own materials, and the beds under
@@ -128,7 +144,15 @@ def tiles_ground(ctx, data, x_m, y_m):
     g = np.where(channel, np.where(at(data["slope"]) + 0.01 * n1 > 0.03, GRAVEL, SAND), g)
     g = np.where(still & (g == DIRT), CLAY, g)
     g = np.where(t["salt"] & ~under, CLAY, g)                              # salt crust on a clay pan
-    return {"h": h, "water": water, "sea": sea, "under": under, "lake": ids["lake"], "pond": ids["pond"],
+    # soil depth over the rock at each corner (the game digs soil down to it, then needs a
+    # pickaxe): 0 at every corner of a rock tile, at least 0.1 m elsewhere; a tile whose four
+    # corners all end up at 0 becomes rock too, so tiles and depths agree
+    rock = (g == ROCK) & ~under
+    zero = corners_of(rock)
+    rock |= tile_corners_all(zero) & ~under
+    g = np.where(rock, ROCK, g)
+    depth = np.where(zero, 0.0, np.maximum(t["depth"], 0.1))
+    return {"h": h, "water": water, "sea": sea, "under": under, "lake": ids["lake"], "pond": ids["pond"], "depth": depth,
             "ground": g.astype(np.int8), "dry": t["dry"], "salt": t["salt"], "beach": shore["sand"],
             "marsh": shore["marsh"], "n1": n1}
 
