@@ -54,6 +54,17 @@ These are fixes made in the generator after a map was imported and seen in the g
   - Fix, commit `6da5ecf`: each cell's canopy thins by its share of rock tiles, with gravel counting half. In rocky test blocks, cells over 90% rock that had trees went from 108 to 1 of 415.
   - Check in game: no trees on rock faces or scree.
 
+- [ ] **Low, thick, uniform walls near the coast.**
+  - Seen in Tiles 3D (preset v2, corner 14820, 14332): a flat floor at ~1 m walled off from 8–9 m land.
+  - Cause: the salt marsh coast type clamped all land within ~180 m of the shore down to about 1 m above the tide, and left a wall where the zone ended.
+  - Fix, commit `a21bd44`: the marsh flattening applies only on ground already low. It fades with height above the marsh level and toward the zone's edge, and follows the coast type's smooth weight. At that spot: 0% of ground over 45° (was 8%).
+  - Check in game: salt marshes are low tidal flats with no walls around them.
+- [ ] **Streams in trenches with sheer walls.**
+  - Seen in Tiles 3D (preset v2, corner 9772, 20724): a 4 m stream at the bottom of a 5 m vertical cut.
+  - Cause: the bank was not allowed below the macro relief, so where the line ran beside the grid's valley its side stayed a wall.
+  - Fix, commit `a21bd44`: the bank rises ~27° until it meets the ground, a small V valley. At that spot the steepest slope is now 31°; river spots with a bank over 45° went from 16% to 7%.
+  - Check in game: streams sit in soft-sided beds.
+
 ## Known, not fixed yet
 
 - **Mud strip in the shallows beside a sand beach.** A salt-marsh coast type next to a sandy beach puts a brown clay sea floor in the shallow water, which looks odd.
