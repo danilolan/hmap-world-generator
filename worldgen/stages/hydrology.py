@@ -34,7 +34,7 @@ from ..core import colormaps, hydro
 from ..core.lines import chaikin, meander
 from ..core.params import Float
 from ..core.pointnoise import fbm_unit
-from ..core.raster_carve import carve_channels, carve_ponds
+from ..core.raster_carve import carve_channels, carve_ponds, freeboard
 from ..core.stage import Stage
 from .erosion import ground, lake_water, routing_roughness
 
@@ -287,7 +287,8 @@ class Hydrology(Stage):
     def _surface(ctx, data, pe, lines, p):
         """Water surface along each line and the carving segments. The surface is the
         full ground (macro and micro relief, as the detail window and the export see it)
-        under each final point, made to run only downhill: water never sits above the
+        under each final point, lowered by the height of the banks (freeboard), made to
+        run only downhill: water never sits above the
         ground under its line, so a channel cuts through bumps and never rides over them
         on an embankment. Segment rows: ax, ay, bx, by, half width, depth, surface at a,
         surface at b, reach of the valley floor, 1 for a line's first segment (nothing is
@@ -301,7 +302,11 @@ class Hydrology(Stage):
             u = under[k:k + len(line)]
             k += len(line)
             u[-1] = min(u[-1], line[-1, 3])                     # the mouth: sea level or the joined channel
-            line[:, 3] = np.maximum(np.minimum.accumulate(u), 0.0)
+            # below the ground by the banks' height (a river in its bed, not level with the
+            # land beside it); the mouth keeps the level of the sea, lake or channel it joins
+            fb = np.array([freeboard(w) for w in line[:, 2]])
+            fb[-1] = 0.0
+            line[:, 3] = np.maximum(np.minimum.accumulate(u - fb), 0.0)
             lines[i] = line.astype(np.float32)
             a, b = line[:-1], line[1:]
             wdt = 0.5 * (a[:, 2] + b[:, 2])

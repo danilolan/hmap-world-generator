@@ -20,6 +20,16 @@ These are fixes made in the generator after a map was imported and seen in the g
     - a tile steeper than ~48° between its own corners is bare rock.
   - Check in game: cliff bands read as sinuous escarpments with steep but not sheer faces, their faces are rock with no grass stripes, and there are no free-standing pillars.
 
+- [ ] **Rivers not carved: a gravel band level with the hillside.**
+  - Seen: river beds painted as gravel but flat with the land around them, so no water mesh could sit in them.
+  - Cause: each line's water surface was the ground under it, and the bank rule only lowered land. In world-1, streams up to 8 m wide lay 0.1-0.2 m below the ground beside them, with beds 0.1-0.4 m deep.
+  - Fix, commit `4b1c0e3`:
+    - the water surface lies below the ground by the height of the banks, from 0.3 m for a brook to 2 m for a wide river;
+    - the bed is 1.5 times the mean depth at its middle, at least 0.3 m;
+    - banks rise ~27° from the water to the ground.
+  - Measured on world-1's parameters: the ground 4-8 m beyond the water's edge now stands 0.5-0.6 m above the water on streams and ~1-3 m on rivers.
+  - Check in game: streams and rivers sit in a bed below their banks, deep enough for lane B's water to fill.
+
 ## Known, not fixed yet
 
 - **Mud strip in the shallows beside a sand beach.** A salt-marsh coast type next to a sandy beach puts a brown clay sea floor in the shallow water, which looks odd.

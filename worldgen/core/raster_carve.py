@@ -41,19 +41,32 @@ def carve_segments(ny, nx, x0, y0, step, segs, bed):
     return cut
 
 
+BANK_RISE = 0.5          # river banks rise 0.5 m per metre from the water (about 27 degrees)
+
+
+@nb.njit(cache=True)
+def freeboard(width):
+    """How far a channel's water lies below the ground around it (m): the height of its
+    banks, from a few decimetres for a brook to 2 m for a wide river. The hydrology stage
+    lowers each line's water surface by it, and the carving lets the banks cut that far
+    below the macro ground."""
+    return min(max(0.3 + 0.06 * width, 0.3), 2.0)
+
+
 @nb.njit(cache=True)
 def carve_channels(h, base, x0, y0, step, segs, water):
     """Carve streams and rivers into a detail window. segs rows: ax, ay, bx, by, half
     width, depth, water surface at a, surface at b, reach of the valley floor, head
     (1 = a line's first segment: nothing is carved upslope of its start, where the
     round cap would otherwise notch the hillside above a spring). The
-    surface never lies above the ground under the line (see the hydrology stage), and
-    carving only lowers the ground: inside the half width a rounded trough under the
-    water surface (marked in `water`); beyond it, bumps of the micro relief standing
-    above a low bank (rising 0.4 m per metre from the water) are cut down toward it,
-    fading out toward the reach, which opens a valley floor where the channel crosses
-    a bump. The cut never goes below `base`, the macro ground without micro relief, so
-    it never notches the hillsides themselves. The nearest channel, in
+    surface lies a freeboard below the ground under the line (see the hydrology stage),
+    and carving only lowers the ground: inside the half width a rounded trough under the
+    water surface, 1.5 times the mean depth at its middle (marked in `water`); beyond it
+    a bank rising BANK_RISE per metre from just above the water, down to which the
+    ground is cut, fading out toward the reach, which opens a valley floor where the
+    channel crosses a bump. The bank never cuts below `base`, the macro ground without
+    micro relief, by more than the freeboard left at that distance, so it never notches
+    the hillsides themselves. The nearest channel, in
     units of each channel's own reach, rules each cell."""
     ny, nx = h.shape
     best = np.full((ny, nx), 1e30)
@@ -101,14 +114,15 @@ def carve_channels(h, base, x0, y0, step, segs, water):
             g = h[r, c]
             if d < hw:
                 v = d / hw
-                g = min(g, s - dep_at[r, c] * (1.0 - v * v))
+                g = min(g, s - max(1.5 * dep_at[r, c], 0.3) * (1.0 - v * v))
                 water[r, c] = True
             elif d < 0.5 * step:
                 # a channel narrower than the window's cells still shows as one cell of water
                 g = min(g, s - 0.05)
                 water[r, c] = True
             else:
-                bank = max(s + 0.25 + dep_at[r, c] + (d - hw) * 0.4, base[r, c])
+                rise = (d - hw) * BANK_RISE
+                bank = max(s + 0.1 + rise, base[r, c] - max(freeboard(2.0 * hw) - rise, 0.0))
                 if g > bank:
                     f = 1.0 - u
                     f = f * f * (3.0 - 2.0 * f)
