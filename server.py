@@ -240,7 +240,7 @@ def tiles_window(body):
              "ground": shares(ground[inner], X.GROUND_NAMES), "cover": shares(cover[inner], COVER_NAMES),
              "soil depth on land (m)": f"{b['d'][inner][land].min() * J.SOIL_UNIT_M:.1f}–"
                                        f"{b['d'][inner][land].max() * J.SOIL_UNIT_M:.1f}" if land.any() else "no land"}
-    return dict(x0=x0, z0=z0, n=n, border=TILE_BORDER, eco=J.ECO, step_m=J.STEP_M, unit_m=J.UNIT_M, origin_m=J.ORIGIN_M,
+    return dict(x0=x0, z0=z0, n=n, border=TILE_BORDER, eco=J.ECO, step_m=J.STEP_M, world_m=ctx.world_m, unit_m=J.UNIT_M, origin_m=J.ORIGIN_M,
                 soil_unit_m=J.SOIL_UNIT_M, h=b64(b["h"]), t=b64(t), d=b64(b["d"]), rgb=b64(rgb), ecology=b64(b["eco"]),
                 modifiers=b64(b["mod"]), still=b64(b["still"]), still_levels=still_levels(data, np.unique(b["still"])),
                 rivers=rivers_in(ctx, data, x0, z0, n),

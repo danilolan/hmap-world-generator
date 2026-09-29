@@ -379,6 +379,27 @@ function controls() {
   bind("tilesSubdiv", "subdiv", Number);
   $("tilesReload").onclick = fetchWindow;
   $("tilesClose").onclick = () => $("tilesPanel").classList.add("hidden");
+  $("tilesW").onclick = (ev) => move(-1, 0, ev.shiftKey);
+  $("tilesE").onclick = (ev) => move(1, 0, ev.shiftKey);
+  $("tilesN").onclick = (ev) => move(0, 1, ev.shiftKey);
+  $("tilesS").onclick = (ev) => move(0, -1, ev.shiftKey);
+  const keys = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, 1], ArrowDown: [0, -1] };
+  window.addEventListener("keydown", (ev) => {
+    const k = keys[ev.key];
+    if (!k || $("tilesPanel").classList.contains("hidden")) return;
+    if (/^(INPUT|SELECT|TEXTAREA)$/.test(document.activeElement?.tagName)) return;
+    ev.preventDefault();
+    move(k[0], k[1], ev.shiftKey);
+  });
+}
+
+// Walk to the neighbouring window (east +x, north +z; half a window with Shift), keeping
+// the camera where it is, so moving across the map reads as one continuous walk.
+function move(east, north, half) {
+  if (!win) return;
+  const step = opts.corners * win.step_m / win.world_m * (half ? 0.5 : 1);
+  point = { cx: Math.min(Math.max(point.cx + east * step, 0), 1), cy: Math.min(Math.max(point.cy - north * step, 0), 1) };
+  fetchWindow();
 }
 
 let bound = false;
