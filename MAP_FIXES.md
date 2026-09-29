@@ -71,6 +71,18 @@ These are fixes made in the generator after a map was imported and seen in the g
   - Fix, commit `abebc62`: the side-by-side stretch is cut, so a tributary meets its channel at an angle at one point; tributaries shorter than 150 m are dropped. On the v2 world, short tributaries went from 160 to 12 (those left end at the sea or a lake) and points running inside another channel from 7807 to 783.
   - Check in game: confluences are single Y joins, with no stubs.
 
+- [ ] **Slopes steeper than the game's repose (twisted tiles).**
+  - Seen in Play (world-1): a rock tile rising 9.4 m over 2 m (78°), which reads as twisted slivers.
+  - Measured:
+    - world-1: 0.099% of land tiles had an edge over 75°, and 16% of gravel tiles were steeper than gravel's 35°;
+    - world-304498: 0.022% over 75°, 17% of gravel over 35°.
+  - Fix, commit `c5767c5`:
+    - stage 5 caps the macro grid at 70°;
+    - the export relaxes the steeper micro spots to rock's 75°;
+    - a tile steeper than its own ground's repose becomes rock.
+  - Measured on v2's steepest blocks: tiles over 75°, 833 → 0; tiles over their own repose, 12,704 → 225 (river bed tiles at falls).
+  - Check in game: no tile edge over 7.4 m, and no loose ground steeper than its repose.
+
 ## Known, not fixed yet
 
 - **Mud strip in the shallows beside a sand beach.** A salt-marsh coast type next to a sandy beach puts a brown clay sea floor in the shallow water, which looks odd.
