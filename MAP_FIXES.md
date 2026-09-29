@@ -39,6 +39,15 @@ These are fixes made in the generator after a map was imported and seen in the g
   - Measured on world-1's parameters: meadows ~4 trees/ha (lone trees and a thin mantle), closed forest 30% → 26% of the land, any trees 56% → 48%.
   - Check in game: meadows read as open grassland with lone trees, and woods have a thin scrub edge. The overall forest share is the owner's choice through the Biomes sliders "Open land" and "Forest needs moisture index above".
 
+- [ ] **Big bare clay "lake beds" that are not flat.**
+  - Seen: wide red-brown clay plains in dry country, rising and falling, that no flat water mesh could fill.
+  - Cause: these were salt flats, the exposed beds of salt lakes that shrink by evaporation, not lakes. The whole basin up to its spill level was marked salt, climbing the slopes. The largest patch in world-1 spanned 119-188 m of height.
+  - Fix, commit `d0e3bb5`:
+    - a salt flat covers only the basin floor, up to 3 m above the water left;
+    - its ground is flattened to just above the flat's level.
+  - Measured on world-1's parameters: salt flat area 2.65 → 0.23 km², heights within 0.3 m.
+  - Check in game: bare clay plains are gone except flat salt pans beside salt lakes. Real lakes' clay beds lie entirely under their level_m (still.json). Salt pans could get a white salt look from ecology biome 13 (lane B).
+
 ## Known, not fixed yet
 
 - **Mud strip in the shallows beside a sand beach.** A salt-marsh coast type next to a sandy beach puts a brown clay sea floor in the shallow water, which looks odd.
