@@ -20,6 +20,7 @@ game's z grows northward, so world z (m) = world side - y.
 import hashlib
 import json
 import multiprocessing as mp
+import os
 import pickle
 import shutil
 import sys
@@ -58,6 +59,7 @@ def status(path, **kw):
     reports never stop the export."""
     kw["time"] = time.time()
     kw.setdefault("started", STARTED[0])
+    kw.setdefault("pid", os.getpid())
     tmp = Path(str(path) + ".tmp")
     tmp.write_text(json.dumps(kw), encoding="utf-8")
     for _ in range(20):

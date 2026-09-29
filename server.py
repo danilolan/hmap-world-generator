@@ -44,7 +44,7 @@ GAME = Path(os.environ.get("MEGASURVIVAL_GAME", HERE.parent / "MegaSurvival"))
 FULL_ROOT = GAME.parent / "MegaSurvivalWorld"                       # full-resolution files, outside both repositories
 PACKAGE_ROOT = GAME / "Assets" / "StreamingAssets" / "World"       # the client package
 PROTECTED_MAPS = {"worldgen-dev"}                                  # the map in the game today (WORLDGEN.md section 6)
-EXPORT = {"proc": None, "full": None}
+EXPORT = {"full": None, "launched": 0.0}
 PIPELINE = Pipeline(STAGES)
 MIME = {".html": "text/html", ".js": "text/javascript", ".css": "text/css", ".png": "image/png"}
 
@@ -155,25 +155,47 @@ def detail(body):
     return out
 
 
-def launch_detached(cmd, log):
-    """Start a process that outlives this tool: its own process group, no console, and on
-    Windows out of this process's job object (a job kills its children with it, whatever
-    their console, when whoever started the tool stops it). Stopping or restarting the tool
-    must not kill an export half-way."""
+def launch_detached(cmd, log_path):
+    """Start a process that outlives this tool, its output going to `log_path`. On Windows
+    it is created by the WMI service (Win32_Process.Create), so it belongs to no console,
+    process group or job object of whoever started the tool: a job kills every process in
+    it when it closes, and a child that only detached from the console still died with the
+    tool's session. Stopping or restarting the tool must not kill an export half-way."""
     if os.name != "nt":
-        return subprocess.Popen(cmd, cwd=str(HERE), stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
-    flags = subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.DETACHED_PROCESS
-    try:
-        return subprocess.Popen(cmd, cwd=str(HERE), stdout=log, stderr=subprocess.STDOUT,
-                                creationflags=flags | subprocess.CREATE_BREAKAWAY_FROM_JOB)
-    except OSError:
-        # the job forbids breaking away: still detached from the console
-        return subprocess.Popen(cmd, cwd=str(HERE), stdout=log, stderr=subprocess.STDOUT, creationflags=flags)
+        subprocess.Popen(cmd, cwd=str(HERE), stdout=open(log_path, "w"), stderr=subprocess.STDOUT, start_new_session=True)
+        return
+    line = subprocess.list2cmdline(cmd) + f' > "{log_path}" 2>&1'
+    ps = ("$r = Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments "
+          f"@{{CommandLine='cmd /c \"{line}\"'; CurrentDirectory='{HERE}'}}; $r.ReturnValue")
+    out = subprocess.run(["powershell", "-NoProfile", "-Command", ps], capture_output=True, text=True, timeout=60)
+    if out.stdout.strip() != "0":
+        raise RuntimeError(f"could not start the export process: {out.stdout.strip()} {out.stderr.strip()}")
+
+
+def pid_alive(pid):
+    """Whether a process is still running (Windows: its exit code is still STILL_ACTIVE)."""
+    if not pid:
+        return False
+    if os.name != "nt":
+        try:
+            os.kill(pid, 0)
+            return True
+        except OSError:
+            return False
+    import ctypes
+    k = ctypes.windll.kernel32
+    h = k.OpenProcess(0x1000, False, int(pid))           # PROCESS_QUERY_LIMITED_INFORMATION
+    if not h:
+        return False
+    code = ctypes.c_ulong()
+    ok = k.GetExitCodeProcess(h, ctypes.byref(code))
+    k.CloseHandle(h)
+    return bool(ok) and code.value == 259
 
 
 def export_start(body):
     """Start the 2 m export (worldgen/export_job.py) as its own process."""
-    if EXPORT["proc"] is not None and EXPORT["proc"].poll() is None:
+    if export_status().get("state") == "running":
         return {"error": "an export is already running"}
     map_id = str(body.get("map_id", "")).strip()
     if not re.fullmatch(r"[A-Za-z0-9_\-]{1,40}", map_id):
@@ -189,9 +211,8 @@ def export_start(body):
                workers=max(1, min((os.cpu_count() or 4) - 2, 16)), **scales(body))
     (full / "export_job.json").write_text(json.dumps(job, indent=1), encoding="utf-8")
     (full / "export_status.json").unlink(missing_ok=True)
-    log = open(full / "export.log", "w", encoding="utf-8")
-    EXPORT["proc"] = launch_detached([sys.executable, "-m", "worldgen.export_job", str(full / "export_job.json")], log)
-    EXPORT["full"] = full
+    launch_detached([sys.executable, "-m", "worldgen.export_job", str(full / "export_job.json")], full / "export.log")
+    EXPORT["full"], EXPORT["launched"] = full, time.time()
     return {"started": map_id, "full_dir": str(full), "package_dir": str(package)}
 
 
@@ -210,16 +231,20 @@ def export_status():
         if not found:
             return {"state": "none"}
         full = found[-1].parent
+    tail = lambda: (full / "export.log").read_text(encoding="utf-8", errors="replace")[-3000:] \
+        if (full / "export.log").exists() else ""
     try:
         st = json.loads((full / "export_status.json").read_text(encoding="utf-8"))
     except (OSError, ValueError):
-        st = {"state": "running", "step": "starting", "started": time.time(), "time": time.time()}
-    tail = lambda: (full / "export.log").read_text(encoding="utf-8", errors="replace")[-3000:] \
-        if (full / "export.log").exists() else ""
+        if known and time.time() - EXPORT["launched"] > 120:
+            st = {"state": "failed", "step": "starting", "error": "the export process never started", "trace": tail()}
+        else:
+            st = {"state": "running", "step": "starting", "started": EXPORT["launched"] or time.time(), "time": time.time()}
     if st.get("state") == "running":
-        dead = known and EXPORT["proc"] is not None and EXPORT["proc"].poll() is not None
-        if dead:
-            st = dict(st, state="failed", error="the export process stopped unexpectedly", trace=tail())
+        # every progress report carries the export's process id: gone means it died
+        if st.get("pid") and not pid_alive(st["pid"]):
+            st = dict(st, state="failed", error="the export process stopped unexpectedly (see the log below)",
+                      trace=tail() or "(the log is empty: the process was killed from outside)")
         elif time.time() - st.get("time", time.time()) > STALLED_S:
             st = dict(st, state="failed", error=f"no progress for {STALLED_S // 60} min: the export process has "
                                                  "probably stopped", trace=tail())
