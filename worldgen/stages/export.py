@@ -77,7 +77,38 @@ def tiles(ctx, data, x_m, y_m):
 # the soil depth the game assumes per tile ground where none is stored (lane D's importer):
 # dirt 1 m, sand 0.6 m, clay 1 m, gravel 0.3 m, rock 0
 SOIL_DEFAULT_M = np.array([1.0, 0.6, 1.0, 0.3, 0.0])
-ROCK_FACE = 1.1          # tile slope (about 48 degrees) above which the ground is bare rock
+# angle of repose per tile ground, as the height difference allowed between neighbouring
+# corners 2 m apart (the game's InteractionTuning defaults, Repose*Units in 0.1 m: dirt
+# 1.7 m (40°), sand 1.1 m (30°), clay 2.4 m (50°), gravel 1.4 m (35°), rock 7.4 m (75°)).
+# The map obeys the same limits players do (Docs/Design/04): nothing is steeper than rock's,
+# and a tile steeper than its own ground's repose is rock. Keep in step with the game.
+REPOSE_M = np.array([1.7, 1.1, 2.4, 1.4, 7.4])
+REPOSE_ITERATIONS = 32   # fixed, well under the export blocks' margin, so blocks stay seamless
+
+
+def relax_repose(h, step):
+    """Pull every pair of neighbouring corners steeper than rock's repose toward each other
+    (the higher lowered, the lower raised, by a quarter of the excess each round, a fixed
+    number of rounds so every export block gets the same result), just under the limit so
+    the 0.1 m rounding of the export cannot push it over. Fronts stay abrupt, capped at
+    75°: steeper faces are objects, not terrain."""
+    lim = (REPOSE_M[ROCK] - 0.1) * step / 2.0
+    h = h.copy()
+    for _ in range(REPOSE_ITERATIONS):
+        d = np.zeros_like(h)
+        for axis in (0, 1):
+            diff = np.diff(h, axis=axis)
+            ex = np.sign(diff) * np.maximum(np.abs(diff) - lim, 0.0) * 0.25
+            if not ex.any():
+                continue
+            if axis == 1:
+                d[:, :-1] += ex
+                d[:, 1:] -= ex
+            else:
+                d[:-1] += ex
+                d[1:] -= ex
+        h += d
+    return h
 
 
 def tile_slope(h, step=2.0):
@@ -115,7 +146,8 @@ def tiles_ground(ctx, data, x_m, y_m):
     p = data["export_params"]
     ids = {}
     h, water, _, shore = Coast().shore(ctx, data, data["coast_params"], x_m, y_m, ids)
-    h = h.astype(np.float64)
+    step = float(x_m[0, 1] - x_m[0, 0])
+    h = relax_repose(h.astype(np.float64), step)
     sea = (h <= 0) & ~water
     under = water | sea
     t = tile_ground(ctx, data, data["soil_params"], x_m, y_m, h, water)
@@ -123,11 +155,6 @@ def tiles_ground(ctx, data, x_m, y_m):
     n1 = fbm_unit(x_m, y_m, 40, 2, ctx.stage_seed(Export.id) + 1)
     at = lambda a: ndimage.map_coordinates(np.asarray(a, np.float32), [y_m / ctx.cell_m - 0.5, x_m / ctx.cell_m - 0.5],
                                            order=1, mode="nearest")
-    # rock faces: a tile steeper than ROCK_FACE between its own corners holds no soil (the
-    # soil rules see a smoothed slope, which misses walls a tile or two wide and left
-    # stripes of grass on them); rows run along +y, so the tile of corner (r, c) reaches
-    # the corners (r - 1, c + 1)
-    g[(tile_slope(h, float(x_m[0, 1] - x_m[0, 0])) > ROCK_FACE) & ~under] = ROCK
     # the shore's own materials
     g[shore["sand"]] = SAND
     g[shore["shingle"]] = GRAVEL
@@ -147,6 +174,12 @@ def tiles_ground(ctx, data, x_m, y_m):
     g = np.where(channel, np.where(at(data["slope"]) + 0.01 * n1 > 0.03, GRAVEL, SAND), g)
     g = np.where(still & (g == DIRT), CLAY, g)
     g = np.where(t["salt"] & ~under, CLAY, g)                              # salt crust on a clay pan
+    # a tile steeper than its ground's repose between its own corners holds no soil: rock
+    # (measured on the heights as the export rounds them; the soil rules see a smoothed
+    # slope, which misses faces a tile or two wide). Rows run along +y, so the tile of
+    # corner (r, c) reaches the corners (r - 1, c + 1)
+    edge = tile_slope(np.rint(h * 10.0) / 10.0, step) * 2.0          # height difference per 2 m
+    g = np.where((edge > REPOSE_M[g] + 1e-6) & ~under, ROCK, g)
     # soil depth over the rock at each corner (the game digs soil down to it, then needs a
     # pickaxe): 0 at every corner of a rock tile, at least 0.1 m elsewhere; a tile whose four
     # corners all end up at 0 becomes rock too, so tiles and depths agree

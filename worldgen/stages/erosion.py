@@ -44,6 +44,33 @@ def _smoothstep(x):
     return x * x * (3 - 2 * x)
 
 
+MAX_SLOPE_DEG = 70.0     # macro faces stay under the game's steepest repose (rock, 75°)
+
+
+def cap_slope(h, lim, rounds=400):
+    """Pull neighbouring cells steeper than `lim` (height per cell) toward each other,
+    the higher lowered and the lower raised, until none is (or `rounds` pass)."""
+    h = h.astype(np.float64).copy()
+    for _ in range(rounds):
+        d = np.zeros_like(h)
+        worst = 0.0
+        for axis in (0, 1):
+            diff = np.diff(h, axis=axis)
+            ex = np.sign(diff) * np.maximum(np.abs(diff) - lim, 0.0)
+            worst = max(worst, float(np.abs(ex).max()))
+            ex *= 0.25
+            if axis == 1:
+                d[:, :-1] += ex
+                d[:, 1:] -= ex
+            else:
+                d[:-1] += ex
+                d[1:] -= ex
+        if worst < 0.01 * lim:
+            break
+        h += d
+    return h
+
+
 def routing_roughness(ctx, p, land):
     """A little roughness for routing only: on smooth ramps water would otherwise run in
     straight parallel lines instead of gathering into river systems. Shared with the
@@ -177,6 +204,12 @@ class Erosion(Stage):
         tgt = ndimage.gaussian_filter(ndimage.grey_dilation(h0l, footprint=disk), r / 2)
         ratio = ndimage.gaussian_filter(np.clip(tgt / np.maximum(cur, 1.0), 0.3, 6.0), r / 2)
         h = np.where(land, h * ratio, h)
+        # no macro slope steeper than MAX_SLOPE_DEG: the game's steepest ground (rock's repose)
+        # is 75°, and a face steeper than that over hundreds of metres (ranges compressed by
+        # the world scale while keeping their height) cannot be fixed corner by corner in the
+        # export. Relaxed over the whole grid here, so every export block agrees; the micro
+        # relief's own steep spots are capped by the export
+        h = cap_slope(h, dx * np.tan(np.radians(MAX_SLOPE_DEG)))
         h = np.where(land, np.maximum(h, 0.2), np.minimum(h, -0.2))
 
         # lakes: big, deep trapped basins keep water; the rest are breached
