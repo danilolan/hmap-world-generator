@@ -142,11 +142,13 @@ async function renderNow() {
       : await api("/api/render", { ...world(), params: state.params, stage: st.id,
           view: state.view[st.id], height: state.mode === "3d" });
     if (id !== requestId) return;
+    baseImage = out.image;
     $("map").src = out.image;
     $("stats").textContent = Object.entries(out.stats || {}).map(([k, v]) => `${k}: ${v}`).join("   ·   ");
     $("timing").textContent = `${out.ms} ms  (` + out.timings.map((t) => `${t.stage} ${t.cached ? "cached" : t.ms + " ms"}`).join(", ") + ")";
+    if (out.height) lastHeight = out.height;
     showLegend(out.legend);
-    if (out.height) { lastHeight = out.height; update3d(out.image); }
+    applyHighlight();
   } catch (e) {
     if (id === requestId) $("stats").textContent = "Error: " + e.message;
   } finally {
@@ -156,15 +158,24 @@ async function renderNow() {
 
 // ---------------------------------------------------------------- legend
 // What the colours mean: a list of swatches (categorical maps, with notes for the biomes)
-// or a colour bar (continuous maps). Collapsed state is remembered.
+// or a colour bar (continuous maps). Collapsed state is remembered. Where the server sends
+// the legend item of each pixel, clicking an item highlights it on the map (the rest is
+// dimmed) until clicked again; the highlight follows the item's name across re-renders, so
+// it stays while sliders move.
+let legendNow = null, highlighted = null, baseImage = null, highlightId = 0;
+
 function showLegend(lg) {
+  legendNow = lg;
   const el = $("legend");
   if (!lg) { el.classList.add("hidden"); return; }
   const rgb = (c) => `rgb(${c[0]},${c[1]},${c[2]})`;
   const esc = (s) => String(s).replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
   let body = "";
   if (lg.kind === "items") {
-    body = lg.items.map((it) => `<div class="lgItem"><span class="sw" style="background:${rgb(it.color)}"></span>
+    const pick = !!lg.labels;
+    body = (pick ? `<div class="lgNote">Click an item to highlight it on the map</div>` : "") +
+      lg.items.map((it, i) => `<div class="lgItem${pick ? " pick" : ""}${it.label === highlighted ? " sel" : ""}" data-i="${i}">
+      <span class="sw" style="background:${rgb(it.color)}"></span>
       <div><div>${esc(it.label)}</div>${it.note ? `<div class="lgNote">${esc(it.note)}</div>` : ""}</div></div>`).join("");
   } else {
     const fmtN = (v) => Math.abs(v) >= 100 ? v.toFixed(0) : Number(v.toFixed(2)).toString();
@@ -181,6 +192,52 @@ function showLegend(lg) {
     try { localStorage.setItem("worldgenLegendCollapsed", now); } catch (e) {}
     showLegend(lg);
   };
+  el.querySelectorAll(".lgItem.pick").forEach((row) => {
+    row.onclick = () => {
+      const label = lg.items[Number(row.dataset.i)].label;
+      highlighted = highlighted === label ? null : label;
+      showLegend(lg);
+      applyHighlight();
+    };
+  });
+}
+
+function loadImage(src) {
+  return new Promise((ok, fail) => { const im = new Image(); im.onload = () => ok(im); im.onerror = fail; im.src = src; });
+}
+
+// The map with only the highlighted legend item in full colour (or the plain map).
+async function applyHighlight() {
+  const id = ++highlightId;
+  const lg = legendNow;
+  const index = lg && lg.labels && highlighted != null ? lg.items.findIndex((it) => it.label === highlighted) : -1;
+  if (index < 0) {
+    $("map").src = baseImage;
+    update3d(baseImage);
+    return;
+  }
+  const [img, lab] = await Promise.all([loadImage(baseImage), loadImage(lg.labels)]);
+  if (id !== highlightId) return;
+  const w = img.naturalWidth, h = img.naturalHeight;
+  const canvas = document.createElement("canvas");
+  canvas.width = w; canvas.height = h;
+  const g = canvas.getContext("2d");
+  g.imageSmoothingEnabled = false;
+  g.drawImage(lab, 0, 0, w, h);
+  const labels = g.getImageData(0, 0, w, h).data;
+  g.drawImage(img, 0, 0);
+  const px = g.getImageData(0, 0, w, h);
+  const d = px.data, want = index + 1;
+  for (let i = 0; i < d.length; i += 4) {
+    if (labels[i] === want) continue;
+    const grey = (d[i] + d[i + 1] + d[i + 2]) / 3;
+    d[i] = d[i + 1] = d[i + 2] = 20 + grey * 0.25;
+  }
+  g.putImageData(px, 0, 0);
+  const url = canvas.toDataURL();
+  if (id !== highlightId) return;
+  $("map").src = url;
+  update3d(url);
 }
 
 // ---------------------------------------------------------------- export

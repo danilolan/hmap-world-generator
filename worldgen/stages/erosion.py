@@ -280,6 +280,12 @@ class Erosion(Stage):
             return [{"color": [200, 60, 40], "label": "eroded (up to 200 m)"}, {"color": [60, 170, 80], "label": "deposited"}]
         return None
 
+    def legend_labels(self, view, ctx, data):
+        if view != "change":
+            return None
+        c = data["erosion_change"]
+        return np.where(data["land"] & (np.abs(c) > 2.0), np.where(c < 0, 0, 1), -1).astype(np.int16)
+
     def render(self, view, ctx, data):
         h = data["height_eroded"]
         if view == "change":

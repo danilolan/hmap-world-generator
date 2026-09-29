@@ -333,6 +333,22 @@ class Soil(Stage):
                     {"color": [190, 180, 105], "label": "dry grass"}, {"color": [55, 115, 200], "label": "water"}]
         return None
 
+    def legend_labels(self, view, ctx, data):
+        land = data["land"] & (data["water_lake_id"] == 0)
+        if view == "soil":
+            lab = data["soil_group"].astype(np.int16) - 1
+        elif view == "parent":
+            lab = data["parent"].astype(np.int16)
+        elif view == "fertility":
+            lab = np.digitize(data["fertility"], [0.15, 0.4, 0.62, 0.87]).astype(np.int16)
+        elif view == "reach":
+            d, fertile = self._reach(ctx, data)
+            limit = data["soil_params"]["walk_min"] / 60.0 * 5.0
+            lab = np.where(fertile, 0, np.where(d > limit, 2, 1)).astype(np.int16)
+        else:
+            return None
+        return np.where(land, lab, -1)
+
     def render(self, view, ctx, data):
         land = data["land"]
         sea = np.array([40, 75, 125], np.uint8)

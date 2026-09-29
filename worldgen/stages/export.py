@@ -203,11 +203,22 @@ class Export(Stage):
     def detail(self, ctx, data, p, x_m, y_m):
         data["export_params"] = p
         t = tiles(ctx, data, x_m, y_m)
-        img = tile_rgb(t)
+        # drawn in the legend's classes, so each can be highlighted from the legend
+        lab = self._classes(t)
+        items = self.legend("detail", ctx, data)
         land = ~t["water"] & ~t["sea"]
-        mats = [(land & (np.abs(img - c).sum(-1) < 1), tuple(c)) for c in np.unique(img[land].reshape(-1, 3), axis=0)] \
-            if land.any() else []
+        mats = [(land & (lab == i), tuple(items[i]["color"])) for i in range(len(items) - 1) if (land & (lab == i)).any()]
         return t["h"], t["water"], mats
+
+    @staticmethod
+    def _classes(t):
+        """The legend item of each tile: bare ground by kind, short or tall grass and dry
+        grass, water."""
+        lab = np.where(t["cover"] == 0, t["ground"].astype(np.int16), -1)
+        tall = t["growth"] >= 8
+        lab = np.where(t["cover"] == GRASS, np.where(tall, 6, 5), lab)
+        lab = np.where(t["cover"] == DRY_GRASS, np.where(tall, 8, 7), lab)
+        return np.where(t["sea"] | t["water"], 9, lab).astype(np.int16)
 
     def _preview(self, ctx, data):
         """Tile materials over the whole map on a 512² grid (a coarse look at the shares)."""
@@ -221,6 +232,9 @@ class Export(Stage):
         return out + [{"color": [165, 185, 95], "label": "short grass"}, {"color": [70, 135, 50], "label": "tall grass"},
                       {"color": [200, 190, 130], "label": "short dry grass"},
                       {"color": [185, 165, 90], "label": "tall dry grass"}, {"color": [55, 115, 200], "label": "water"}]
+
+    def legend_labels(self, view, ctx, data):
+        return self._classes(self._preview(ctx, data))
 
     def render(self, view, ctx, data):
         t = self._preview(ctx, data)

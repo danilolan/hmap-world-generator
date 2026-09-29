@@ -232,6 +232,11 @@ class Biomes(Stage):
                     for b in range(1, len(BIOMES))]
         return None
 
+    def legend_labels(self, view, ctx, data):
+        if view == "biomes":
+            return data["biome"].astype(np.int16) - 1
+        return None
+
     def render(self, view, ctx, data):
         land = data["land"]
         if view == "forest":

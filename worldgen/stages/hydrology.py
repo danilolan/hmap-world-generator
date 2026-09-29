@@ -430,7 +430,10 @@ class Hydrology(Stage):
         return f
 
     def legend(self, view, ctx, data):
-        if view in ("water", "detail"):
+        if view == "detail":
+            return [{"color": [55, 115, 200], "label": "water"}, {"color": [100, 130, 80], "label": "wetland"},
+                    {"color": [238, 234, 222], "label": "salt flat"}]
+        if view == "water":
             return [{"color": [110, 160, 225], "label": "brook (under 2.5 m, step over it)"},
                     {"color": [170, 185, 205], "label": "seasonal brook (dry in summer)"},
                     {"color": [60, 120, 220], "label": "stream"},
@@ -446,6 +449,28 @@ class Hydrology(Stage):
                     {"color": [120, 200, 230], "label": "floodplain (tinted)"}, {"color": [80, 120, 70], "label": "wetland"},
                     {"color": [60, 130, 220], "label": "lake"}]
         return None
+
+    def legend_labels(self, view, ctx, data):
+        if view != "water":
+            return None
+        lakes, cls, dry = data["water_lake_id"], data["channel_class"], data["seasonal"]
+        lab = np.full(lakes.shape, -1, np.int16)
+        lab[data["wetland"] > 0.5] = 8
+        lab[data["salt_flat"]] = 7
+        lab[(cls == BROOK) & ~dry] = 0
+        lab[(cls == BROOK) & dry] = 1
+        lab[(cls == STREAM) & ~dry] = 2
+        lab[(cls == STREAM) & dry] = 3
+        river = cls == RIVER
+        grow = int(round(2 * ctx.res / 1024))
+        lab[(ndimage.binary_dilation(river, iterations=grow) & data["land"]) if grow else river] = 4
+        salt_ids = [L["id"] for L in data["water_lakes"] if L["kind"] == "salt lake"]
+        salt_lake = np.isin(lakes, salt_ids)
+        lab[(lakes > 0) & ~salt_lake] = 5
+        lab[salt_lake] = 6
+        lab[self._features(ctx, data) == SMALL_WATER] = 9
+        lab[~data["land"]] = -1
+        return lab
 
     def render(self, view, ctx, data):
         land, h = data["land"], data["height_eroded"]

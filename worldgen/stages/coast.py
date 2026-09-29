@@ -381,6 +381,13 @@ class Coast(Stage):
                     {"color": [110, 135, 95], "label": "salt marsh"}, {"color": [55, 115, 200], "label": "water"}]
         return None
 
+    def legend_labels(self, view, ctx, data):
+        if view != "coast":
+            return None
+        ct = data["coast_type"]
+        wide = ndimage.grey_dilation(ct, size=3) * (ct == 0) + ct
+        return np.where(data["land"] & (wide > 0), wide.astype(np.int16) - 1, -1)
+
     def render(self, view, ctx, data):
         land = data["land"]
         h = data["height_eroded"]

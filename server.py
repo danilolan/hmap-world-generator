@@ -86,10 +86,37 @@ def legend(stage, view, ctx, data, ramps):
     ramp the view used."""
     items = stage.legend(view, ctx, data)
     if items:
-        return dict(kind="items", title=stage.views.get(view, view), items=items)
+        out = dict(kind="items", title=stage.views.get(view, view), items=items)
+        labels = stage.legend_labels(view, ctx, data)
+        if labels is not None:
+            out["labels"] = label_url(labels, ctx.res)
+        return out
     if ramps:
         return dict(ramps[0], title=stage.views.get(view, view), unit=stage.units.get(view, ""))
     return None
+
+
+def label_url(labels, n):
+    """Legend item per pixel as a grey PNG (item index + 1, 0 = none), at the image's size."""
+    labels = np.asarray(labels)
+    if labels.shape[0] != n:
+        labels = ndimage.zoom(labels, n / labels.shape[0], order=0)
+    return colormaps.data_url(np.clip(labels + 1, 0, 255).astype(np.uint8))
+
+
+def detail_labels(items, h, water, overlays):
+    """Legend items of a detail window: its overlays matched to the legend by colour, as
+    they were drawn (later ones on top), and the water."""
+    lab = np.full(h.shape, -1, np.int16)
+    colors = {tuple(int(c) for c in it["color"]): i for i, it in enumerate(items)}
+    for mask, rgb in overlays:
+        i = colors.get(tuple(int(round(c)) for c in rgb))
+        if i is not None:
+            lab[mask] = i
+    wi = next((i for i, it in enumerate(items) if it["label"] == "water"), None)
+    if water is not None and wi is not None:
+        lab[water & (h > 0)] = wi
+    return lab
 
 
 def detail(body):
@@ -118,7 +145,9 @@ def detail(body):
                       "sampled from": f"the {ctx.res}² grid ({ctx.cell_m:.0f} m): raise Preview for sharper detail",
                       "lowest (m)": int(h.min()), "highest (m)": int(h.max()),
                       "relief in window (m)": int(h.max() - h.min())},
-               legend=dict(kind="items", title="Detail", items=detail_legend) if detail_legend else None,
+               legend=dict(kind="items", title="Detail", items=detail_legend,
+                           labels=label_url(detail_labels(detail_legend, h, water, overlays), m))
+               if detail_legend else None,
                timings=[dict(stage=s, ms=round(t * 1000), cached=c) for s, t, c in timings])
     if body.get("height"):
         hs = ndimage.zoom(h, 256 / m, order=1).astype(np.float32)

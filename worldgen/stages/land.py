@@ -182,6 +182,14 @@ class Land(Stage):
             return [{"color": [235, 235, 235], "label": "land"}, {"color": [25, 25, 25], "label": "sea"}]
         return None
 
+    def legend_labels(self, view, ctx, data):
+        land = data["land"]
+        if view in ("classes", "plates"):
+            return np.where(land, data["land_class"].astype(np.int16) - 1, len(CLASS_NAMES)).astype(np.int16)
+        if view == "land":
+            return np.where(land, 0, 1).astype(np.int16)
+        return None
+
     def render(self, view, ctx, data):
         land, cls, d = data["land"], data["land_class"], data["coast_dist_km"]
         if view == "land":

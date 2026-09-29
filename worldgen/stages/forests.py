@@ -263,6 +263,20 @@ class Forests(Stage):
                     {"color": [215, 210, 180], "label": "no trees"}]
         return None
 
+    def legend_labels(self, view, ctx, data):
+        sp, dens = data["tree_species"], data["tree_density"]
+        water = ~data["land"] | (data["water_lake_id"] > 0)
+        if view == "species":
+            lab = sp.astype(np.int16) - 1
+            lab[dens == 0] = len(SPECIES) - 1
+        elif view == "kind":
+            lab = KIND[sp].astype(np.int16) - 1
+            lab[dens == 0] = 2
+        else:
+            return None
+        lab[water] = -1
+        return lab
+
     def render(self, view, ctx, data):
         land = data["land"]
         sea = np.array([40, 75, 125], np.uint8)

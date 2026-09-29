@@ -227,6 +227,11 @@ class Climate(Stage):
             return [{"color": list(c), "label": n, "note": "rain / potential evaporation"} for c, n in zip(cols, names)]
         return None
 
+    def legend_labels(self, view, ctx, data):
+        if view != "aridity":
+            return None
+        return np.where(data["land"], np.digitize(data["aridity"], [0.05, 0.2, 0.5, 0.65, 1.0]), -1).astype(np.int16)
+
     def render(self, view, ctx, data):
         land = data["land"]
         sea = np.array([40, 75, 125], np.uint8)

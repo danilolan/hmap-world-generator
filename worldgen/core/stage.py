@@ -75,6 +75,12 @@ class Stage:
         colour bar of the ramp the view used (continuous maps)."""
         return None
 
+    def legend_labels(self, view: str, ctx: Context, data: dict):
+        """For a view with a list legend: which item each pixel of the rendered image
+        shows (int array of item indices, -1 none), so the page can highlight one item.
+        None when not available."""
+        return None
+
     def stats(self, ctx: Context, data: dict) -> dict:
         """Short numbers shown under the map (optional)."""
         return {}

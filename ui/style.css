@@ -66,3 +66,6 @@ button:disabled, select:disabled { opacity: .4; cursor: default; }
 .lgNote { color: var(--muted); font-size: 11px; }
 .lgBar { width: 240px; height: 12px; border-radius: 3px; border: 1px solid rgba(255,255,255,.25); }
 .lgScale { display: flex; justify-content: space-between; color: var(--muted); font-size: 11px; margin-top: 2px; }
+.lgItem.pick { cursor: pointer; border-radius: 4px; padding: 1px 3px; margin: 1px -3px; }
+.lgItem.pick:hover { background: rgba(111, 177, 255, .12); }
+.lgItem.sel { background: rgba(111, 177, 255, .25); outline: 1px solid var(--accent); }

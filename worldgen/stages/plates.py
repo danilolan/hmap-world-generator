@@ -270,6 +270,20 @@ class Plates(Stage):
                 {"color": list(BOUNDARY_COLORS[TRANSFORM]), "label": "sliding border"},
                 {"color": [255, 255, 255], "label": "plate motion (arrow)"}, {"color": [255, 200, 0], "label": "hotspot"}]
 
+    def legend_labels(self, view, ctx, data):
+        plate, kind, btype = data["plate"], data["plate_kind"], data["boundary_type"]
+        thick = ndimage.grey_dilation(btype, size=max(2, plate.shape[0] // 200))
+        if view == "boundaries":
+            pr = data["boundary_pressure"]
+            g = max(2, plate.shape[0] // 200)
+            pos = ndimage.grey_dilation(np.maximum(pr, 0), size=g) >= ndimage.grey_dilation(np.maximum(-pr, 0), size=g)
+            return np.where(thick > 0, np.where(pos, 0, 1), -1).astype(np.int16)
+        k = kind[plate]
+        lab = np.where(k == CONTINENT, 0, np.where(k == MICRO, 1, 2)).astype(np.int16)
+        for i, t in enumerate((CONVERGENT, DIVERGENT, TRANSFORM)):
+            lab[thick == t] = 3 + i
+        return lab
+
     def render(self, view, ctx, data):
         plate, kind, btype = data["plate"], data["plate_kind"], data["boundary_type"]
         n = plate.shape[0]

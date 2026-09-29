@@ -171,6 +171,15 @@ class Character(Stage):
             return [{"color": list(c), "label": n} for c, n in zip(pal, ROCK_TYPES)]
         return None
 
+    def legend_labels(self, view, ctx, data):
+        if view == "character":
+            lab = np.argmax(np.stack([data["w_" + k] for k in STYLE_COLORS]), 0)
+        elif view == "rock":
+            lab = np.argmax(data["rock_w"], 0)
+        else:
+            return None
+        return np.where(data["land"], lab, -1).astype(np.int16)
+
     def render(self, view, ctx, data):
         land = data["land"]
         sea = np.array([40, 75, 125], np.uint8)
