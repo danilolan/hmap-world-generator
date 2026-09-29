@@ -29,6 +29,7 @@ from world coordinates, so the detail window and the 2 m export agree.
 """
 import numpy as np
 from scipy import ndimage
+from scipy.spatial import cKDTree
 
 from ..core import colormaps, hydro
 from ..core.lines import chaikin, meander
@@ -44,6 +45,7 @@ BROOK_MAX_M = 2.5                  # a brook can be stepped or jumped across
 BROOK, STREAM, RIVER = 1, 2, 3     # channel classes
 POND, TARN, OXBOW, SPRING_POOL = 1, 2, 3, 4    # small water kinds
 PLAYA_M = 3.0                      # a salt flat covers the basin floor up to this above its water
+MIN_TRIBUTARY_M = 150.0            # shorter tributaries reach the river as sheet flow
 WATERFALL_MIN_M3S = 0.02           # below this a steep step is a trickle, not a sight
 COAST, LAKE, WETLAND, CHANNEL, SMALL_WATER = 1, 2, 3, 4, 5    # what a walk meets
 
@@ -251,8 +253,7 @@ class Hydrology(Stage):
         # meets one already traced
         heads = idx[~has_donor[idx]]
         visited = np.zeros(n * n, bool)
-        lines, falls = [], []
-        springs = [((c % n + 0.5) * dx, (c // n + 0.5) * dx) for c in heads if not SE[c]]
+        lines, falls, heads_kept, joins = [], [], [], []
         for s in heads:
             chain, c = [], s
             while True:
@@ -279,7 +280,7 @@ class Hydrology(Stage):
                 pts = np.vstack([pts, last])
             if len(pts) < 2:
                 continue
-            falls += _waterfalls(pts, p["waterfall_m"])
+            line_falls = _waterfalls(pts, p["waterfall_m"])
             # bend the grid's straight runs and 45-degree kinks: a displacement field of
             # world position, so lines sharing a junction move it alike
             ox = 0.25 * dx * fbm_unit(pts[:, 0], pts[:, 1], 5 * dx, 3, seed + 21)
@@ -290,6 +291,13 @@ class Hydrology(Stage):
             pts[:, 0] += ox
             pts[:, 1] += oy
             lines.append(meander(chaikin(pts, 3), slope, dx, p["meander"], seed + 7 + len(lines)))
+            falls.append(line_falls)
+            heads_kept.append(s)
+            joins.append(bool(lf[end]) and lake_idx[end] < 0 and end != ch[-1])
+        keep = _confluences(lines, joins)
+        springs = [((s % n + 0.5) * dx, (s // n + 0.5) * dx) for s, k in zip(heads_kept, keep) if k and not SE[s]]
+        falls = [f for fl, k in zip(falls, keep) if k for f in fl]
+        lines = [line for line, k in zip(lines, keep) if k]
         return lines, np.array(springs).reshape(-1, 2), np.array(falls).reshape(-1, 4)
 
     @staticmethod
@@ -568,6 +576,44 @@ class Hydrology(Stage):
         return {f"walks meeting water within {L / 1000:g} km %": round(float(met.mean() * 100)),
                 "median walk to water (km)": round(float(np.median(np.where(met, hit_d, 2 * L))) / 1000.0, 2),
                 "first water met": first}
+
+
+def _confluences(lines, joins):
+    """Tidy the lines that end by joining another channel (`joins`), in place: the last
+    stretch of a tributary running alongside the channel it joins is cut, so it meets it
+    at an angle at one point instead of doubling it into a lens-shaped bulge (the grid's
+    flow runs side by side for a few cells before merging); a tributary shorter than
+    MIN_TRIBUTARY_M from its source to the junction is dropped, as such a short run
+    reaches the river as sheet flow, not as a channel of its own. Returns which lines
+    to keep."""
+    keep = [True] * len(lines)
+    if not lines:
+        return keep
+    pts = np.concatenate([np.asarray(l)[:, :3] for l in lines])
+    owner = np.concatenate([np.full(len(l), i) for i, l in enumerate(lines)])
+    tree = cKDTree(pts[:, :2])
+    for i, (line, j) in enumerate(zip(lines, joins)):
+        if not j:
+            continue
+        a = np.asarray(line)
+        # the receiving channel: the nearest other line at the junction point
+        cand = tree.query_ball_point(a[-1, :2], 3.0 * a[-1, 2] + 30.0)
+        others = [c for c in cand if owner[c] != i]
+        if others:
+            recv_w = max(pts[c, 2] for c in others)
+            cut = len(a) - 1
+            while cut > 2:
+                r = 0.5 * a[cut - 1, 2] + 0.5 * recv_w + 3.0
+                near = [c for c in tree.query_ball_point(a[cut - 1, :2], r) if owner[c] != i]
+                if not near:
+                    break
+                cut -= 1
+            if cut < len(a) - 1:
+                lines[i] = np.ascontiguousarray(np.vstack([a[:cut], a[-1:]]))
+                a = lines[i]
+        if np.hypot(np.diff(a[:, 0]), np.diff(a[:, 1])).sum() < MIN_TRIBUTARY_M:
+            keep[i] = False
+    return keep
 
 
 def _waterfalls(pts, min_drop):
