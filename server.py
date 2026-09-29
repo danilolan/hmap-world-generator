@@ -226,11 +226,20 @@ def export_status():
     full = EXPORT["full"]
     known = full is not None
     if not known:
-        # after a restart of the tool: the most recent export on disk (it may still be running)
+        # after a restart of the tool: an export on disk still running (its process alive),
+        # else the most recent one
         found = sorted(FULL_ROOT.glob("*/export_status.json"), key=lambda p: p.stat().st_mtime)
         if not found:
             return {"state": "none"}
         full = found[-1].parent
+        for f in reversed(found):
+            try:
+                s = json.loads(f.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                continue
+            if s.get("state") == "running" and pid_alive(s.get("pid")):
+                full = f.parent
+                break
     tail = lambda: (full / "export.log").read_text(encoding="utf-8", errors="replace")[-3000:] \
         if (full / "export.log").exists() else ""
     try:
