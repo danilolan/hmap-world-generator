@@ -155,6 +155,22 @@ def detail(body):
     return out
 
 
+def launch_detached(cmd, log):
+    """Start a process that outlives this tool: its own process group, no console, and on
+    Windows out of this process's job object (a job kills its children with it, whatever
+    their console, when whoever started the tool stops it). Stopping or restarting the tool
+    must not kill an export half-way."""
+    if os.name != "nt":
+        return subprocess.Popen(cmd, cwd=str(HERE), stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
+    flags = subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.DETACHED_PROCESS
+    try:
+        return subprocess.Popen(cmd, cwd=str(HERE), stdout=log, stderr=subprocess.STDOUT,
+                                creationflags=flags | subprocess.CREATE_BREAKAWAY_FROM_JOB)
+    except OSError:
+        # the job forbids breaking away: still detached from the console
+        return subprocess.Popen(cmd, cwd=str(HERE), stdout=log, stderr=subprocess.STDOUT, creationflags=flags)
+
+
 def export_start(body):
     """Start the 2 m export (worldgen/export_job.py) as its own process."""
     if EXPORT["proc"] is not None and EXPORT["proc"].poll() is None:
@@ -174,12 +190,7 @@ def export_start(body):
     (full / "export_job.json").write_text(json.dumps(job, indent=1), encoding="utf-8")
     (full / "export_status.json").unlink(missing_ok=True)
     log = open(full / "export.log", "w", encoding="utf-8")
-    # its own process group, detached from this console: stopping or restarting the tool
-    # (Ctrl+C, closing the window) must not kill an export half-way
-    flags = (subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.DETACHED_PROCESS) if os.name == "nt" else 0
-    EXPORT["proc"] = subprocess.Popen([sys.executable, "-m", "worldgen.export_job", str(full / "export_job.json")],
-                                      cwd=str(HERE), stdout=log, stderr=subprocess.STDOUT, creationflags=flags,
-                                      start_new_session=os.name != "nt")
+    EXPORT["proc"] = launch_detached([sys.executable, "-m", "worldgen.export_job", str(full / "export_job.json")], log)
     EXPORT["full"] = full
     return {"started": map_id, "full_dir": str(full), "package_dir": str(package)}
 
