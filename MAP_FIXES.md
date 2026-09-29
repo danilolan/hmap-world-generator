@@ -30,6 +30,15 @@ These are fixes made in the generator after a map was imported and seen in the g
   - Measured on world-1's parameters: the ground 4-8 m beyond the water's edge now stands 0.5-0.6 m above the water on streams and ~1-3 m on rivers.
   - Check in game: streams and rivers sit in a bed below their banks, deep enough for lane B's water to fill.
 
+- [ ] **Forest everywhere: meadows full of trees.**
+  - Seen: woods on every side, with hardly any open land.
+  - Cause: in world-1, meadows (22% of the land) grew ~67 trees/ha, with trees in half of their cells. The scrub mantle at forest edges reached ~120 m into every meadow. In subhumid meadows, which are open for want of rain, its formula blew up and planted closed forest (canopy up to 15).
+  - Fix, commit `79c0ea6`:
+    - the mantle reaches a quarter of the edge width (tens of metres), with its density capped;
+    - it grows only in clearings of forest country.
+  - Measured on world-1's parameters: meadows ~4 trees/ha (lone trees and a thin mantle), closed forest 30% → 26% of the land, any trees 56% → 48%.
+  - Check in game: meadows read as open grassland with lone trees, and woods have a thin scrub edge. The overall forest share is the owner's choice through the Biomes sliders "Open land" and "Forest needs moisture index above".
+
 ## Known, not fixed yet
 
 - **Mud strip in the shallows beside a sand beach.** A salt-marsh coast type next to a sandy beach puts a brown clay sea floor in the shallow water, which looks odd.
