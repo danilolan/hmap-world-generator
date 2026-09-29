@@ -32,6 +32,7 @@ from scipy import ndimage
 
 from ..core import colormaps, hydro
 from ..core.lines import chaikin, meander
+from ..core.memo import memo
 from ..core.params import Float
 from ..core.pointnoise import fbm_unit
 from ..core.raster_carve import carve_channels, carve_ponds, freeboard
@@ -42,6 +43,7 @@ SECONDS_PER_YEAR = 31_557_600.0
 BROOK_MAX_M = 2.5                  # a brook can be stepped or jumped across
 BROOK, STREAM, RIVER = 1, 2, 3     # channel classes
 POND, TARN, OXBOW, SPRING_POOL = 1, 2, 3, 4    # small water kinds
+PLAYA_M = 3.0                      # a salt flat covers the basin floor up to this above its water
 WATERFALL_MIN_M3S = 0.02           # below this a steep step is a trickle, not a sight
 COAST, LAKE, WETLAND, CHANNEL, SMALL_WATER = 1, 2, 3, 4, 5    # what a walk meets
 
@@ -140,7 +142,7 @@ class Hydrology(Stage):
         q, inflow = hydro.discharge(rec, order, local, lake_idx, outlet, lake_net)
         Q = (q / SECONDS_PER_YEAR).reshape(n, n)                                               # m³/s
 
-        lake_map, lake_level, salt, lakes = self._lakes(lakes5, lid5, h, rain, pet, inflow, lake_net, cell_area, dx, p)
+        lake_map, lake_level, salt, salt_level, lakes = self._lakes(lakes5, lid5, h, rain, pet, inflow, lake_net, cell_area, dx, p)
 
         # channels and their hydraulic geometry (Leopold & Maddock 1953) from the discharge
         # of the uncompressed world; a channel is walker scale, so its width and depth are
@@ -185,7 +187,7 @@ class Hydrology(Stage):
         return {"discharge_m3s": Q.astype(np.float32), "runoff_mm": runoff.astype(np.float32),
                 "channel_class": cls, "seasonal": seasonal, "stream_lines": lines, "stream_segments": segs,
                 "stream_segment_class": seg_cls, "water_lake_id": lake_map, "water_lake_level": lake_level,
-                "water_lakes": lakes, "salt_flat": salt, "wetland": wetland, "hand_m": hand.astype(np.float32),
+                "water_lakes": lakes, "salt_flat": salt, "salt_level": salt_level, "wetland": wetland, "hand_m": hand.astype(np.float32),
                 "wetness_index": twi.astype(np.float32), "ponds": ponds, "springs": springs, "waterfalls": falls,
                 "hydrology_params": dict(p)}
 
@@ -193,11 +195,15 @@ class Hydrology(Stage):
     @staticmethod
     def _lakes(lakes5, lid5, h, rain, pet, inflow, lake_net, cell_area, dx, p):
         """Stage 5's trapped basins by water balance: open (spilling), salt lake (shrunk
-        until evaporation equals inflow; the exposed bed is a salt flat) or salt flat."""
+        until evaporation equals inflow; the exposed bed is a salt flat) or salt flat. A
+        salt flat (playa) is only the basin's floor, up to PLAYA_M above the water left
+        (or the lowest bed): the basin's sides above it are ordinary land, not salt
+        climbing tens of metres up the slopes. `salt_level` is the flat's height."""
         n = h.shape[0]
         lake_map = np.zeros((n, n), np.int32)
         lake_level = np.zeros((n, n), np.float32)
         salt = np.zeros((n, n), bool)
+        salt_level = np.zeros((n, n), np.float32)
         lakes = []
         for k, L in enumerate(lakes5):
             cells = lid5 == L["id"]
@@ -212,7 +218,9 @@ class Hydrology(Stage):
                 else:
                     kind, level = "salt lake", float(beds[min(keep, beds.size - 1)])
                     wet = cells & (h < level)
-                salt |= cells & ~wet
+                flat = cells & ~wet & (h < level + PLAYA_M)
+                salt |= flat
+                salt_level[flat] = level
             lid = len(lakes) + 1
             fetch = depth = 0.0
             if wet.any():
@@ -224,7 +232,7 @@ class Hydrology(Stage):
             lakes.append(dict(id=lid, kind=kind, level_m=float(level), area_km2=float(wet.sum() * dx * dx / 1e6),
                               max_depth_m=depth, fetch_km=fetch, inflow_m3s=float(inflow[k] / SECONDS_PER_YEAR),
                               outflow_m3s=float(max(balance, 0.0) / SECONDS_PER_YEAR)))
-        return lake_map, lake_level, salt, lakes
+        return lake_map, lake_level, salt, salt_level, lakes
 
     # ------------------------------------------------------------------ channels
     @staticmethod
@@ -555,6 +563,17 @@ def water_detail(ctx, data, x_m, y_m, h, extra_segments=None, ponds=None, ids=No
     base = ndimage.map_coordinates(data["height_eroded"], coords, order=3, mode="nearest").astype(np.float64)
     water = np.zeros(h.shape, np.bool_)
     x0, y0, step = float(x_m[0, 0]), float(y_m[0, 0]), float(x_m[0, 1] - x_m[0, 0])
+    # salt flats are dead flat (the lake's fine sediment and salt filled the floor): the
+    # ground comes down to just above the flat's level, blended in at its edge
+    sf = ndimage.map_coordinates(data["salt_flat"].astype(np.float32), coords, order=1, mode="nearest")
+    if (sf > 0).any():
+        def spread():
+            _, (iy, ix) = ndimage.distance_transform_edt(~data["salt_flat"], return_indices=True)
+            return data["salt_level"][iy, ix]
+        level = ndimage.map_coordinates(memo(data, "salt_level_near", spread), coords, order=0, mode="nearest")
+        wgt = np.clip(sf / 0.5, 0, 1)
+        wgt = wgt * wgt * (3 - 2 * wgt)
+        h = h + wgt * (np.minimum(h, level + 0.25) - h)
     segs = data["stream_segments"]
     if extra_segments is not None and len(extra_segments):
         segs = np.ascontiguousarray(np.concatenate([segs, extra_segments]), np.float64)
