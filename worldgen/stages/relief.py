@@ -66,8 +66,9 @@ class Relief(Stage):
               "How many of the rock layers stand up as walls in rugged layered rock"),
         Float("tor_m", "Micro relief: tors (m)", 9, 0, 30, 0.5, "Height of the rounded granite outcrops"),
         Float("doline_m", "Micro relief: sinkholes (m)", 6, 0, 20, 0.5, "Depth of the karst hollows in limestone"),
-        Float("scarp_sharpness", "Micro relief: rock wall steepness", 0.06, 0.02, 0.3, 0.005,
-              "Lower = steeper, rockier faces (a near-vertical wall of exposed rock)", advanced=True),
+        Float("scarp_deg", "Micro relief: rock wall steepness (°)", 55, 30, 75, 1,
+              "Steepest part of a rock wall's face; its top and foot round off into the slopes around it",
+              advanced=True),
         Float("tilt_m", "Continental tilt (m)", 250, 0, 800, 10,
               "How much higher a continent stands near its collision zone than at its far, passive coasts: rivers "
               "born in the ranges gather into long rivers crossing the continent"),
@@ -306,31 +307,49 @@ def micro_relief(ctx, data, p, x_m, y_m, height_grid):
     # export tile, a pond's rim) agrees
     slope = grad
     if rock is not None:
-        # cliff bands: gently dipping strata (a regional dip, a little warp); the hard
+        # cliff bands: gently dipping strata (a regional dip, a warp so a wall's line
+        # wanders ~60 m across the slope instead of following the contours, and ridged
+        # re-entrants where gullies cut back into it, scaled by the slope so the wander is
+        # the same in metres on any ground); the hard
         # layers stand up as walls, the soft ones weather into slopes. q counts layers up
         # the slope: a wall of scarp_m every ~2.5 walls' height of rise, so the ground
         # between walls still falls downhill and nothing is trapped behind a wall
         layered = rock["sandstone"] + rock["limestone"] + rock["basalt"]          # granite has no layers
         dip = 0.02 * fbm_unit(x_m, y_m, 9000, 2, seed + 15)
         z = h + dip * x_m + 0.02 * fbm_unit(x_m, y_m, 9000, 2, seed + 16) * y_m \
-            + 10.0 * fbm_unit(x_m, y_m, 500, 3, seed + 17)
+            + 10.0 * fbm_unit(x_m, y_m, 500, 3, seed + 17) \
+            + np.maximum(slope, 0.03) * (60.0 * fbm_unit(x_m, y_m, 220, 3, seed + 23)
+                                         + 20.0 * fbm_at(x_m, y_m, 80, 2, seed + 24, "ridged", 0.5))
         spacing = 2.5 * max(p["scarp_m"], 1e-3)
-        q = z / spacing
+        # layers of uneven thickness (a monotone wobble of z: two incommensurate waves, thin
+        # layers 0.6x and thick ones 2.5x the mean), so walls do not stack at one regular
+        # spacing up a long slope; dq is how much faster the layers pass than on average
+        zs = z / spacing
+        w1, w2 = 0.61 * zs * 2 * np.pi + 1.3, 0.23 * zs * 2 * np.pi + 4.1
+        q = zs + 0.12 * np.sin(w1) + 0.1 * np.sin(w2)
+        dq = 1.0 + 0.12 * 0.61 * 2 * np.pi * np.cos(w1) + 0.1 * 0.23 * 2 * np.pi * np.cos(w2)
         layer = np.floor(q)
         frac = q - layer
         hard = (np.abs(np.sin(layer * 12.9898 + seed % 1000) * 43758.5453) % 1.0) < p["scarps"] * 0.7
-        riser = p["scarp_sharpness"]
+        # a wall runs for a stretch, then breaks (gullies, buttresses, slopes of scree):
+        # segments of one to a few hundred metres, of varying height
+        stretch = _smoothstep((fbm_unit(x_m, y_m, 260, 3, seed + 18) + 0.1) / 0.35)
+        # the riser's share of a layer, from the face steepness wanted: the wall climbs
+        # scarp_m over riser * spacing / slope metres of ground (the warp about doubles how
+        # fast z climbs, hence 2 slope), and a smoothstep face is 1.5 times steeper at its
+        # middle than on average; toward a segment's end the face
+        # also widens, so the wall dies out as a slope instead of ending in a sheer pillar
+        face = np.tan(np.radians(p["scarp_deg"])) / 1.5
+        riser = np.clip(p["scarp_m"] * 2.0 * dq * np.maximum(slope, 0.02) / (face * spacing) / (0.3 + 0.7 * stretch),
+                        0.04, 0.6)
         wall = p["scarp_m"] * (_smoothstep((frac - (1 - riser)) / riser) - frac) * hard
         # moderate slopes: on steep mountainsides the walls would crowd into thin hatching
         on_slope = _smoothstep((slope - 0.04) / 0.06) * (1.0 - _smoothstep((slope - 0.4) / 0.25))
         band = rugged * _smoothstep((layered - 0.2) / 0.4) * on_slope
-        # a wall runs for a stretch, then breaks (gullies, buttresses, slopes of scree):
-        # segments of one to a few hundred metres, of varying height
-        stretch = _smoothstep((fbm_unit(x_m, y_m, 260, 3, seed + 18) + 0.1) / 0.35)
         micro += wall * band * stretch * (0.6 + 0.5 * _smoothstep((fbm_unit(x_m, y_m, 700, 2, seed + 22) + 1.0) / 2.0))
         # tors: rounded granite (and some basalt) outcrops with steep sides
         k = fbm_unit(x_m, y_m, 90, 2, seed + 19)
-        tors = _smoothstep((k - 1.35) / 0.3) * (0.7 + 0.3 * fbm_unit(x_m, y_m, 30, 2, seed + 20))
+        tors = _smoothstep((k - 1.3) / 0.5) * (0.7 + 0.3 * fbm_unit(x_m, y_m, 30, 2, seed + 20))
         micro += p["tor_m"] * tors * rugged * (rock["granite"] + 0.4 * rock["basalt"]) * (1.0 - _smoothstep((slope - 0.5) / 0.3))
         # dolines: the closed hollows of karst limestone (dry: the water sinks underground)
         dl = fbm_unit(x_m, y_m, 160, 2, seed + 21)

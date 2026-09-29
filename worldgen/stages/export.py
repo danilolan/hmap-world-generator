@@ -74,6 +74,21 @@ def tiles(ctx, data, x_m, y_m):
     return tiles_cover(ctx, data, x_m, y_m, base, canopy, species, biome)
 
 
+ROCK_FACE = 1.1           # tile slope (about 48 degrees) above which the ground is bare rock
+
+
+def tile_slope(h, step=2.0):
+    """Steepest edge of each 2 m tile (its corner and the three toward +x and -row)."""
+    a = h
+    right = np.roll(a, -1, 1)
+    up = np.roll(a, 1, 0)
+    diag = np.roll(up, -1, 1)
+    s = np.maximum.reduce([np.abs(right - a), np.abs(up - a), np.abs(diag - up), np.abs(diag - right)]) / step
+    s[:, -1] = s[:, -2]
+    s[0] = s[1]
+    return s
+
+
 def tiles_ground(ctx, data, x_m, y_m):
     """Heights, water and the ground of each tile: stage 11's shaped shore with stage 7's
     water carved in, stage 8's soil rules, the shore's own materials, and the beds under
@@ -89,6 +104,11 @@ def tiles_ground(ctx, data, x_m, y_m):
     n1 = fbm_unit(x_m, y_m, 40, 2, ctx.stage_seed(Export.id) + 1)
     at = lambda a: ndimage.map_coordinates(np.asarray(a, np.float32), [y_m / ctx.cell_m - 0.5, x_m / ctx.cell_m - 0.5],
                                            order=1, mode="nearest")
+    # rock faces: a tile steeper than ROCK_FACE between its own corners holds no soil (the
+    # soil rules see a smoothed slope, which misses walls a tile or two wide and left
+    # stripes of grass on them); rows run along +y, so the tile of corner (r, c) reaches
+    # the corners (r - 1, c + 1)
+    g[(tile_slope(h, float(x_m[0, 1] - x_m[0, 0])) > ROCK_FACE) & ~under] = ROCK
     # the shore's own materials
     g[shore["sand"]] = SAND
     g[shore["shingle"]] = GRAVEL
