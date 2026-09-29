@@ -64,10 +64,11 @@ def carve_channels(h, base, x0, y0, step, segs, water):
     water surface, 1.5 times the mean depth at its middle (marked in `water`); beyond it
     a bank rising BANK_RISE per metre from just above the water, down to which the
     ground is cut, fading out toward the reach, which opens a valley floor where the
-    channel crosses a bump. The bank never cuts below `base`, the macro ground without
-    micro relief, by more than the freeboard left at that distance, so it never notches
-    the hillsides themselves. The nearest channel, in
-    units of each channel's own reach, rules each cell."""
+    channel crosses a bump and a small V valley where it runs beside higher ground (the
+    bank once stopped at `base`, the macro ground, which left sheer walls of several
+    metres wherever the line ran beside the grid's valley; `base` is kept in the
+    signature, unused). The nearest channel, in units of each channel's own reach, rules
+    each cell."""
     ny, nx = h.shape
     best = np.full((ny, nx), 1e30)
     surf = np.zeros((ny, nx))
@@ -122,7 +123,7 @@ def carve_channels(h, base, x0, y0, step, segs, water):
                 water[r, c] = True
             else:
                 rise = (d - hw) * BANK_RISE
-                bank = max(s + 0.1 + rise, base[r, c] - max(freeboard(2.0 * hw) - rise, 0.0))
+                bank = s + 0.1 + rise
                 if g > bank:
                     f = 1.0 - u
                     f = f * f * (3.0 - 2.0 * f)

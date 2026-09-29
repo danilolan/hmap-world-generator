@@ -317,9 +317,16 @@ class Coast(Stage):
             h = np.where(cliff, h + (target - h) * wc, h)
         else:
             face = np.zeros(h.shape)
-        # salt marsh: flat, just above the tide
-        marsh = near & (ctype == MARSH) & (d_m > -20.0) & (d_m < 180.0 + 80.0 * n1)
-        h = np.where(marsh & (h > 0), np.minimum(h, 0.3 + 0.8 * _smoothstep(d_m / 250.0) + 0.2 * n1), h)
+        # salt marsh: flat, just above the tide, but only on ground that is already low (a
+        # marsh is the tide's flat, not a plateau cut down to it): the flattening fades with
+        # the ground's height above the marsh level and toward the zone's inland edge, and
+        # follows the coast type's smooth weight, so it never leaves a wall (a hard clamp over
+        # 180 m of coast cut 8 m land down to 1 m and left a step at the zone's edge)
+        level = 0.3 + 0.8 * _smoothstep(d_m / 250.0) + 0.2 * n1
+        wm = _smoothstep(wt[MARSH] / 0.5) * (1.0 - _smoothstep((d_m - 150.0 - 80.0 * n1) / 80.0)) \
+            * (1.0 - _smoothstep((h - level - 1.0) / 3.0)) * (d_m > -20.0)
+        marsh = near & (ctype == MARSH) & (wm > 0.5)
+        h = np.where(h > 0, h + wm * (np.minimum(h, level) - h), h)
         h = self._tidy_waterline(h, step)
         h, water, overlays = water_detail(ctx, data, x_m, y_m, h, data["estuary_segments"], data["coast_ponds"], ids)
         # shore materials, on land and on the sea bottom along the shore
