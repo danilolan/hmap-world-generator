@@ -116,13 +116,22 @@ def carve_channels(h, base, x0, y0, step, segs, water):
             h[r, c] = g
 
 
+BANK_SLOPE = 0.3          # pond banks: about 17 degrees
+BANK_M = 60.0             # the farthest the bank reaches from the shore
+
+
 @nb.njit(cache=True)
 def carve_ponds(h, x0, y0, step, ponds, water, ident):
     """Carve ponds into a detail window. ponds rows: x, y, a, b (semi-axes), angle,
     water level, depth, kind (3 = oxbow: a crescent, its inner side bitten out toward
     the river, which lies along +v). The bed is a bowl under the level; cells under the
     level are marked in `water`, and in `ident` with the pond's row + 1. The shore wanders around the ellipse (a few angular
-    harmonics with phases from the pond's position), within 1.25 of its semi-axes."""
+    harmonics with phases from the pond's position), within 1.25 of its semi-axes.
+    Around the shore the ground is cut down to a bank rising BANK_SLOPE per metre from
+    just above the level until it meets the ground (fading out only in the last metres of
+    BANK_M, which the placement's rim tolerance keeps out of reach): the bowl alone would leave a vertical
+    wall wherever the ground at the shore stands above the water (most ponds sit on
+    gently sloping ground, whose high side is metres above the level)."""
     ny, nx = h.shape
     for k in range(ponds.shape[0]):
         px, py, a, b, ang, level, depth, kind = ponds[k]
@@ -130,7 +139,7 @@ def carve_ponds(h, x0, y0, step, ponds, water, ident):
         sa = np.sin(ang)
         f1 = (px * 0.0137 + py * 0.0291) % 6.2832
         f2 = (px * 0.0213 - py * 0.0117) % 6.2832
-        reach = 1.25 * a
+        reach = 1.25 * a + BANK_M
         c0 = int((px - reach - x0) / step) - 1
         c1 = int((px + reach - x0) / step) + 2
         r0 = int((py - reach - y0) / step) - 1
@@ -147,12 +156,26 @@ def carve_ponds(h, x0, y0, step, ponds, water, ident):
                 wob = 1.0 + 0.13 * np.sin(3.0 * th + f1) + 0.08 * np.sin(5.0 * th + f2)
                 rho = ((u / a) ** 2 + (v / b) ** 2) / (wob * wob)
                 if rho >= 1.0:
+                    # the bank: distance beyond the shore along the ray from the centre
+                    dist = np.sqrt(wx * wx + wy * wy)
+                    out = dist - dist / np.sqrt(rho)
+                    if out < BANK_M:
+                        bank = level + 0.3 + BANK_SLOPE * out
+                        if h[r, c] > bank:
+                            f = min((BANK_M - out) / 10.0, 1.0)
+                            f = f * f * (3.0 - 2.0 * f)
+                            h[r, c] -= f * (h[r, c] - bank)
                     continue
                 if kind == 3.0:
                     ri = (u / (0.85 * a)) ** 2 + ((v - 0.55 * b) / (0.8 * b)) ** 2
                     if ri < 1.0:
+                        # the ground the crescent curls around gets the same bank
+                        inside = (1.0 - np.sqrt(ri)) * 0.8 * b
+                        bank = level + 0.3 + BANK_SLOPE * inside
+                        if h[r, c] > bank:
+                            h[r, c] = bank
                         continue
-                    rho = max(rho, 1.0 - (ri - 1.0) * 4.0)
+                    rho = max(rho, 1.0 - (ri - 1.0) * 1.5)
                 bed = level - depth * (1.0 - rho)
                 if bed < h[r, c]:
                     h[r, c] = bed

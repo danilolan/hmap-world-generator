@@ -387,7 +387,9 @@ class Hydrology(Stage):
         u, v = 1.3 * ponds[:, 2:3] * np.cos(t), 1.3 * ponds[:, 3:4] * np.sin(t)
         rim = ground(ctx, data, data["erosion_params"], ponds[:, 0:1] + u * ca - v * sa, ponds[:, 1:2] + u * sa + v * ca)
         lo, hi = rim.min(1), rim.max(1)
-        tol = np.where(ponds[:, 7] == TARN, 0.6 * ponds[:, 2] + 5.0,
+        # how uneven the rim may be: a pond needs a hollow, not a slope (its bank is cut
+        # down to the level, so the high side of an uneven rim becomes a long cut)
+        tol = np.where(ponds[:, 7] == TARN, 0.2 * ponds[:, 2] + 5.0,
                        np.where(ponds[:, 7] == SPRING_POOL, 0.25 * ponds[:, 2] + 6.0, 0.1 * ponds[:, 2] + 3.5))
         ponds[:, 5] = lo - 0.3
         return np.ascontiguousarray(ponds[(hi - lo < tol) & (lo > 0.3)], np.float64)
