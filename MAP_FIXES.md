@@ -23,7 +23,7 @@ These are fixes made in the generator after a map was imported and seen in the g
 - [ ] **Rivers not carved: a gravel band level with the hillside.**
   - Seen: river beds painted as gravel but flat with the land around them, so no water mesh could sit in them.
   - Cause: each line's water surface was the ground under it, and the bank rule only lowered land. In world-1, streams up to 8 m wide lay 0.1-0.2 m below the ground beside them, with beds 0.1-0.4 m deep.
-  - Fix, commit `4b1c0e3`:
+  - Fix, commit `44a262c`:
     - the water surface lies below the ground by the height of the banks, from 0.3 m for a brook to 2 m for a wide river;
     - the bed is 1.5 times the mean depth at its middle, at least 0.3 m;
     - banks rise ~27° from the water to the ground.
