@@ -74,7 +74,10 @@ def tiles(ctx, data, x_m, y_m):
     return tiles_cover(ctx, data, x_m, y_m, base, canopy, species, biome)
 
 
-ROCK_FACE = 1.1           # tile slope (about 48 degrees) above which the ground is bare rock
+# the soil depth the game assumes per tile ground where none is stored (lane D's importer):
+# dirt 1 m, sand 0.6 m, clay 1 m, gravel 0.3 m, rock 0
+SOIL_DEFAULT_M = np.array([1.0, 0.6, 1.0, 0.3, 0.0])
+ROCK_FACE = 1.1          # tile slope (about 48 degrees) above which the ground is bare rock
 
 
 def tile_slope(h, step=2.0):
@@ -152,6 +155,12 @@ def tiles_ground(ctx, data, x_m, y_m):
     rock |= tile_corners_all(zero) & ~under
     g = np.where(rock, ROCK, g)
     depth = np.where(zero, 0.0, np.maximum(t["depth"], 0.1))
+    # the server stores a chunk's rock only where it differs from the default it derives
+    # from the tiles (the softest of a corner's four tiles): depths close to it snap to it
+    td = SOIL_DEFAULT_M[g]
+    below = np.roll(td, -1, 0)
+    default = np.maximum.reduce([td, np.roll(td, 1, 1), below, np.roll(below, 1, 1)])
+    depth = np.where(~zero & (np.abs(depth - default) < 0.25), default, depth)
     return {"h": h, "water": water, "sea": sea, "under": under, "lake": ids["lake"], "pond": ids["pond"], "depth": depth,
             "ground": g.astype(np.int8), "dry": t["dry"], "salt": t["salt"], "beach": shore["sand"],
             "marsh": shore["marsh"], "n1": n1}
