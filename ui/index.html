@@ -40,6 +40,7 @@
             <option value="4">4 km</option><option value="8">8 km</option>
           </select>
         </div>
+        <button id="tilesBtn" title="The exported 2 m tiles in 3D: click a point on the map">Tiles 3D</button>
         <div class="tabs">
           <button id="mode2d" class="active">2D</button>
           <button id="mode3d">3D</button>
@@ -52,6 +53,29 @@
         <div id="busy" class="hidden">Computing…</div>
         <div id="legend" class="hidden"></div>
         <div id="exportPanel" class="hidden"></div>
+        <div id="tilesPanel" class="hidden">
+          <div class="toolbar">
+            <strong>2 m tiles</strong>
+            <select id="tilesSize" title="Window size"><option value="64">128 m</option><option value="128">256 m</option></select>
+            <select id="tilesGrid" title="The grid the stages run on: the export's for the exact result">
+              <option value="2048">2048² grid (as exported)</option><option value="1024">1024² grid</option>
+              <option value="preview">Preview grid (approximate)</option></select>
+            <select id="tilesColor"><option value="tiles">Tile materials</option><option value="soil">Soil depth</option>
+              <option value="biome">Biome (16 m cells)</option></select>
+            <label title="Sharp: one flat colour per 2 m tile. Blended: colours meet across tile edges"><input id="tilesBlend" type="checkbox"> Blend</label>
+            <label><input id="tilesLines" type="checkbox"> Grid</label>
+            <label><input id="tilesWater" type="checkbox"> Water</label>
+            <label title="Markers of the 16 m ecology cells' tree density and species, not the game's own placement"><input id="tilesTrees" type="checkbox"> Trees</label>
+            <label>Vertical × <input id="tilesExag" type="range" min="1" max="4" step="0.25"></label>
+            <select id="tilesSubdiv" title="Surface samples per tile side (the game: 2 near the camera)">
+              <option value="1">1 per tile</option><option value="2">2 per tile</option><option value="4">4 per tile</option></select>
+            <span class="spacer"></span>
+            <button id="tilesReload" title="Fetch again with the current sliders">Reload</button>
+            <button id="tilesClose">Close</button>
+          </div>
+          <div id="tilesCanvas"><div id="tilesHover" class="hidden"></div><div id="tilesBusy" class="hidden"></div></div>
+          <div class="status"><span id="tilesStats"></span><span class="spacer"></span><span id="tilesTiming"></span></div>
+        </div>
       </div>
       <div class="status"><span id="stats"></span><span class="spacer"></span><span id="timing"></span></div>
     </section>

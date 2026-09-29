@@ -85,3 +85,11 @@ button:disabled, select:disabled { opacity: .4; cursor: default; }
 .epError { color: #ff8a80; margin: 4px 0; font-weight: 600; }
 .epWarn { color: #ffcc66; margin-top: 4px; }
 #exportPanel pre { max-height: 200px; overflow: auto; white-space: pre-wrap; font-size: 10px; background: #0e1013; padding: 4px; }
+#map.picking { cursor: crosshair; }
+#tilesPanel { position: absolute; inset: 0; display: flex; flex-direction: column; background: var(--bg); z-index: 5; }
+#tilesPanel .toolbar { flex-wrap: wrap; }
+#tilesCanvas { flex: 1; position: relative; min-height: 0; }
+#tilesCanvas canvas { display: block; }
+#tilesHover { position: absolute; left: 10px; top: 10px; background: rgba(16,18,22,.85); border: 1px solid var(--line);
+  border-radius: 6px; padding: 6px 10px; font-variant-numeric: tabular-nums; pointer-events: none; max-width: 420px; }
+#tilesBusy { position: absolute; top: 10px; right: 12px; background: rgba(0,0,0,.7); padding: 4px 10px; border-radius: 4px; max-width: 60%; }

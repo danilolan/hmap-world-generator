@@ -6,6 +6,8 @@ Serves the page in ui/ and a small JSON API:
     GET  /api/stages              stage list with parameters and views, defaults
     POST /api/render              {seed, res, scale, height_follow, params, stage, view, height} -> image (+ heights for 3D)
     POST /api/detail              {seed, res, params, stage, cx, cy, size_km, height} -> high-resolution window
+    POST /api/tiles               {seed, res, scale, height_follow, params, cx, cy, corners} -> the exported 2 m data of a
+                                  small window (heights, tiles, soil, ecology, water), for the page's 3D tile view
     POST /api/gallery             {seeds, res, params, stage, view} -> thumbnails
     POST /api/export              {seed, res, scale, height_follow, params, map_id, overwrite} -> starts the 2 m export
     GET  /api/export              the running or last export's progress
@@ -30,9 +32,13 @@ from pathlib import Path
 import numpy as np
 from scipy import ndimage
 
+from worldgen import export_job as J
 from worldgen.core import colormaps
 from worldgen.core.pipeline import Pipeline
 from worldgen.stages import STAGES
+from worldgen.stages import biomes as B
+from worldgen.stages import export as X
+from worldgen.stages import forests as F
 
 HERE = Path(__file__).parent
 UI = HERE / "ui"
@@ -153,6 +159,99 @@ def detail(body):
         hs = ndimage.zoom(h, 256 / m, order=1).astype(np.float32)
         out["height"] = dict(n=256, cell_m=size / 256, data=base64.b64encode(hs.tobytes()).decode())
     return out
+
+
+TILE_SIZES = (64, 128)            # corners per side of the 3D tile window: 128 m or 256 m
+TILE_BORDER = 4                   # corners around it: an edge tile's surface reads one corner beyond it
+TILES = {"key": None}             # the pipeline result the last tile window used (its memo() values stay warm)
+COVER_NAMES = {X.NO_COVER: "none", X.GRASS: "grass", X.DRY_GRASS: "dry grass"}
+
+
+def tiles_block(ctx, data, cx, cy, corners):
+    """The 2 m export of the window of `corners` corners (plus TILE_BORDER each side) around
+    the point (cx, cy), fractions of the map with row 0 = north: export_job.block() itself,
+    at an origin on the 16 m ecology grid, so every value is the one Export writes there.
+    Returns the block and its corner origin (x0, z0), rows from the south."""
+    n = corners + 2 * TILE_BORDER
+    snap = lambda c: int(np.clip(np.floor((c - n / 2) / J.ECO) * J.ECO, 0, J.CORNERS - n))
+    x0 = snap(cx * ctx.world_m / J.STEP_M)
+    z0 = snap((1.0 - cy) * ctx.world_m / J.STEP_M)
+    data.setdefault("_lake_count", len(data["water_lakes"]))
+    return J.block(ctx, data, x0, z0, n=n), x0, z0
+
+
+def still_levels(data, ids):
+    """Water level (m) of the lakes and ponds `ids` of the still-water raster (export_job.water_tables)."""
+    nl = data["_lake_count"]
+    lakes = {int(L["id"]): float(L["level_m"]) for L in data["water_lakes"]}
+    ponds = data["coast_ponds"]
+    return {int(i): lakes.get(int(i)) if i <= nl else float(ponds[int(i) - nl - 1][5]) for i in ids if i > 0}
+
+
+def rivers_in(ctx, data, x0, z0, n):
+    """River centreline pieces crossing the window, as the export writes them (rivers.f32):
+    lists of [x_m, z_m, water surface m, width m], world metres."""
+    lo_x, hi_x = x0 * J.STEP_M, (x0 + n) * J.STEP_M
+    lo_z, hi_z = z0 * J.STEP_M, (z0 + n) * J.STEP_M
+    out = []
+    for line in data["stream_lines"]:
+        a = np.asarray(line, np.float64)
+        z = J.to_z(ctx, a[:, 1])
+        pad = a[:, 2] + 4.0
+        inside = (a[:, 0] + pad > lo_x) & (a[:, 0] - pad < hi_x) & (z + pad > lo_z) & (z - pad < hi_z)
+        if not inside.any():
+            continue
+        k = np.flatnonzero(inside)
+        # runs of consecutive points, one point beyond each end so the ribbon reaches the edge
+        for run in np.split(k, np.flatnonzero(np.diff(k) > 1) + 1):
+            s = slice(max(run[0] - 1, 0), min(run[-1] + 2, len(a)))
+            out.append(np.round(np.stack([a[s, 0], z[s], a[s, 3], a[s, 2]], -1), 2).tolist())
+    return out
+
+
+def tiles_window(body):
+    """The 3D tile view's window: what Export writes around a point, with the seed, grid,
+    scale and parameters the page sends (its Grid choice is the export's)."""
+    world, res, seed, params = scales(body), int(body.get("res", 2048)), int(body.get("seed", 1)), body.get("params", {})
+    key = json.dumps([seed, res, world, params], sort_keys=True)
+    if TILES["key"] != key:
+        ctx, data, timings = PIPELINE.compute(seed, res, params, "export", **world)
+        TILES.update(key=key, ctx=ctx, data=data)
+    else:
+        timings = []
+    ctx, data = TILES["ctx"], TILES["data"]
+    corners = int(body.get("corners", 64))
+    corners = corners if corners in TILE_SIZES else TILE_SIZES[0]
+    t0 = time.perf_counter()
+    b, x0, z0 = tiles_block(ctx, data, float(body.get("cx", 0.5)), float(body.get("cy", 0.5)), corners)
+    n = b["h"].shape[0]
+    t = b["t"]
+    ground, cover, growth = t & 0xFF, (t >> 8) & 0x0F, t >> 12
+    rgb = X.tile_rgb({"ground": ground, "cover": cover, "growth": growth}).astype(np.uint8)
+    h = b["h"].astype(np.float64) * J.UNIT_M + J.ORIGIN_M
+    inner = (slice(TILE_BORDER, n - TILE_BORDER),) * 2
+    land = h[inner] > 0
+    shares = lambda a, names: ", ".join(f"{names.get(int(k), k)} {c / a.size * 100:.0f}%"
+                                        for k, c in zip(*np.unique(a, return_counts=True)))
+    b64 = lambda a: base64.b64encode(np.ascontiguousarray(a).tobytes()).decode()
+    stats = {"window": f"{corners * J.STEP_M:g} m at ({x0 * J.STEP_M / 1000:.2f}, {z0 * J.STEP_M / 1000:.2f}) km "
+                       f"(corner {x0 + TILE_BORDER}, {z0 + TILE_BORDER})",
+             "grid": f"{res}²", "lowest (m)": round(float(h[inner].min()), 1), "highest (m)": round(float(h[inner].max()), 1),
+             "ground": shares(ground[inner], X.GROUND_NAMES), "cover": shares(cover[inner], COVER_NAMES),
+             "soil depth on land (m)": f"{b['d'][inner][land].min() * J.SOIL_UNIT_M:.1f}–"
+                                       f"{b['d'][inner][land].max() * J.SOIL_UNIT_M:.1f}" if land.any() else "no land"}
+    return dict(x0=x0, z0=z0, n=n, border=TILE_BORDER, eco=J.ECO, step_m=J.STEP_M, unit_m=J.UNIT_M, origin_m=J.ORIGIN_M,
+                soil_unit_m=J.SOIL_UNIT_M, h=b64(b["h"]), t=b64(t), d=b64(b["d"]), rgb=b64(rgb), ecology=b64(b["eco"]),
+                modifiers=b64(b["mod"]), still=b64(b["still"]), still_levels=still_levels(data, np.unique(b["still"])),
+                rivers=rivers_in(ctx, data, x0, z0, n),
+                ground_names={int(k): v for k, v in X.GROUND_NAMES.items()},
+                cover_names={int(k): v for k, v in COVER_NAMES.items()},
+                biomes=[dict(name=nm, color=list(c)) for nm, c in B.BIOMES],
+                species=[dict(name=nm, color=list(c), kind=int(k)) for nm, c, k in F.SPECIES],
+                modifier_names=list(F.MODIFIERS), stats=stats,
+                legend=dict(kind="items", title="Tile materials", items=X.Export().legend("tiles", ctx, data)),
+                block_ms=round((time.perf_counter() - t0) * 1000),
+                timings=[dict(stage=s, ms=round(tm * 1000), cached=c) for s, tm, c in timings])
 
 
 def launch_detached(cmd, log_path):
@@ -316,6 +415,11 @@ class Handler(BaseHTTPRequestHandler):
             if self.path == "/api/detail":
                 t0 = time.perf_counter()
                 out = detail(body)
+                out["ms"] = round((time.perf_counter() - t0) * 1000)
+                return self._send(200, out)
+            if self.path == "/api/tiles":
+                t0 = time.perf_counter()
+                out = tiles_window(body)
                 out["ms"] = round((time.perf_counter() - t0) * 1000)
                 return self._send(200, out)
             if self.path == "/api/export":

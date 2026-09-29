@@ -1,9 +1,10 @@
 // World generator tuning tool (WORLDGEN.md section 4). The page builds itself
 // from /api/stages: one card per stage, one control per parameter.
+import { openTiles } from "./tiles3d.js";
 
 const $ = (id) => document.getElementById(id);
 const state = { stages: [], defaults: {}, params: {}, seed: 1, res: 512, selected: null, view: {}, mode: "2d",
-  detail: false, cx: 0.5, cy: 0.5, detailKm: 2, scale: 1, heightFollow: true };
+  detail: false, cx: 0.5, cy: 0.5, detailKm: 2, scale: 1, heightFollow: true, tilesPick: false, worldM: 64000 };
 const SCALES = [1, 1.25, 1.5, 2, 2.5, 3, 4];
 let requestId = 0, timer = null, three = null, lastHeight = null;
 
@@ -435,6 +436,7 @@ async function init() {
   const saved = load();
   state.stages = info.stages;
   state.defaults = info.defaults;
+  state.worldM = info.world_m;
   state.params = {};
   // Keep only the values the user actually changed: a saved value equal to the default it was saved
   // with follows the current default (defaults evolve while the stages are tuned). Saves from before
@@ -462,7 +464,25 @@ async function init() {
   $("res").onchange = () => { state.res = Number($("res").value); schedule(0); };
   $("detailBtn").onclick = () => { state.detail = !state.detail; buildTabs(); schedule(0); };
   $("detailSize").onchange = () => { state.detailKm = Number($("detailSize").value); if (state.detail) schedule(0); };
+  $("tilesBtn").onclick = () => {
+    state.tilesPick = !state.tilesPick;
+    if (state.tilesPick && state.mode === "3d") setMode("2d");
+    $("tilesBtn").classList.toggle("active", state.tilesPick);
+    $("map").classList.toggle("picking", state.tilesPick);
+  };
   $("map").onclick = (ev) => {
+    if (state.tilesPick) {
+      // the clicked point on the whole map (inside the detail window when it is shown)
+      const r = $("map").getBoundingClientRect();
+      let cx = (ev.clientX - r.left) / r.width, cy = (ev.clientY - r.top) / r.height;
+      if (state.detail) {
+        const k = state.detailKm * 1000 / state.worldM;
+        cx = state.cx + (cx - 0.5) * k;
+        cy = state.cy + (cy - 0.5) * k;
+      }
+      openTiles(cx, cy, () => ({ ...world(), params: state.params }));
+      return;
+    }
     const st = current();
     if (!st?.has_detail || state.detail) return;
     const r = $("map").getBoundingClientRect();
