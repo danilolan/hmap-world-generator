@@ -156,11 +156,15 @@ def tiles_ground(ctx, data, x_m, y_m):
     g = np.where(rock, ROCK, g)
     depth = np.where(zero, 0.0, np.maximum(t["depth"], 0.1))
     # the server stores a chunk's rock only where it differs from the default it derives
-    # from the tiles (the softest of a corner's four tiles): depths close to it snap to it
+    # from the tiles' ground (agreed with lanes A and D): 0 if any of the corner's four
+    # tiles is rock (under water too), else the deepest of their defaults. Land depths
+    # close to it snap to it; under water, where any depth will do, the default is written
     td = SOIL_DEFAULT_M[g]
     below = np.roll(td, -1, 0)
     default = np.maximum.reduce([td, np.roll(td, 1, 1), below, np.roll(below, 1, 1)])
-    depth = np.where(~zero & (np.abs(depth - default) < 0.25), default, depth)
+    default = np.where(corners_of(g == ROCK), 0.0, default)
+    wet = corners_of(under)
+    depth = np.where(wet | (~zero & (np.abs(depth - default) < 0.25)), default, depth)
     return {"h": h, "water": water, "sea": sea, "under": under, "lake": ids["lake"], "pond": ids["pond"], "depth": depth,
             "ground": g.astype(np.int8), "dry": t["dry"], "salt": t["salt"], "beach": shore["sand"],
             "marsh": shore["marsh"], "n1": n1}
