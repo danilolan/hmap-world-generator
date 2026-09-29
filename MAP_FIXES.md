@@ -48,6 +48,12 @@ These are fixes made in the generator after a map was imported and seen in the g
   - Measured on world-1's parameters: salt flat area 2.65 → 0.23 km², heights within 0.3 m.
   - Check in game: bare clay plains are gone except flat salt pans beside salt lakes. Real lakes' clay beds lie entirely under their level_m (still.json). Salt pans could get a white salt look from ecology biome 13 (lane B).
 
+- [ ] **Trees on bare rock.**
+  - Seen in Tiles 3D: conifer forest standing on rock and gravel tiles on mountainsides.
+  - Cause: the 16 m cells' canopy came from smooth soil fields that do not see the dithered, slope-driven rock tiles.
+  - Fix, commit `6da5ecf`: each cell's canopy thins by its share of rock tiles, with gravel counting half. In rocky test blocks, cells over 90% rock that had trees went from 108 to 1 of 415.
+  - Check in game: no trees on rock faces or scree.
+
 ## Known, not fixed yet
 
 - **Mud strip in the shallows beside a sand beach.** A salt-marsh coast type next to a sandy beach puts a brown clay sea floor in the shallow water, which looks odd.
