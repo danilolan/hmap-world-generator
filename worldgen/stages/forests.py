@@ -143,9 +143,16 @@ def forest_at(f, x_m, y_m, pb, p, seed, sample_m=0.0):
     dens = np.where(forest, dens * (0.35 + 0.65 * _smoothstep(mg["treeline"] / 1.5)), dens)
     edge_zone = forest & (inside < 0.3)
     species = np.where(edge_zone & (n_stand[BIRCH] + 0.5 * n16 > 0.3), np.where(fe > 0.5, HAWTHORN, BIRCH), species)
-    # ... and a mantle of scrub reaches out into the meadow
-    mantle = (biome == B.MEADOW) & (mg["open"] < p["edge"]) & (mg["treeline"] > 0)
-    mantle_d = 5.0 * (1.0 - mg["open"] / p["edge"]) * (0.6 + 0.4 * n16)
+    # ... and a mantle of scrub reaches a little way out into the meadow: a quarter of the
+    # edge (tens of metres, like a real woodland mantle; a full edge width, ~120 m, put
+    # scrub and trees over nearly half of every meadow)
+    # Only meadows that are clearings of forest country (moist enough for forest, open
+    # by the open-land mosaic): a subhumid meadow is open for want of rain, its open
+    # margin is meaningless (negative), and it once grew closed forest here
+    reach = 0.25 * p["edge"]
+    mantle = (biome == B.MEADOW) & (mg["open"] >= 0) & (mg["open"] < reach) & (mg["moisture"] >= 0) \
+        & (mg["treeline"] > 0)
+    mantle_d = 4.0 * np.clip(1.0 - mg["open"] / reach, 0, 1) * (0.6 + 0.4 * n16)
     dens = np.where(mantle, np.maximum(dens, mantle_d), dens)
     species = np.where(mantle & (mantle_d > 1.0), np.where(n16 > 0, HAWTHORN, BIRCH), species)
     # krummholz above the closed forest, lone trees in the open
