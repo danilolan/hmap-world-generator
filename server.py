@@ -68,8 +68,9 @@ def render(body, thumbnail_res=None):
     res = thumbnail_res or int(body.get("res", 512))
     ctx, data, timings = PIPELINE.compute(int(body.get("seed", 1)), res, body.get("params", {}), stage.id, **scales(body))
     view = body.get("view") or next(iter(stage.views))
-    img = stage.render(view, ctx, data)
-    out = dict(image=colormaps.data_url(img), stats=stage.stats(ctx, data),
+    with colormaps.recording() as ramps:
+        img = stage.render(view, ctx, data)
+    out = dict(image=colormaps.data_url(img), stats=stage.stats(ctx, data), legend=legend(stage, view, ctx, data, ramps),
                timings=[dict(stage=s, ms=round(t * 1000), cached=c) for s, t, c in timings])
     if body.get("height") and stage.height_output:
         h = data[stage.height_output].astype(np.float32)
@@ -78,6 +79,17 @@ def render(body, thumbnail_res=None):
             h = ndimage.zoom(h, m / h.shape[0], order=1).astype(np.float32)
         out["height"] = dict(n=m, cell_m=ctx.world_m / m, data=base64.b64encode(h.tobytes()).decode())
     return out
+
+
+def legend(stage, view, ctx, data, ramps):
+    """The view's legend: the stage's own list of colours, or the colour bar of the first
+    ramp the view used."""
+    items = stage.legend(view, ctx, data)
+    if items:
+        return dict(kind="items", title=stage.views.get(view, view), items=items)
+    if ramps:
+        return dict(ramps[0], title=stage.views.get(view, view), unit=stage.units.get(view, ""))
+    return None
 
 
 def detail(body):
@@ -92,6 +104,7 @@ def detail(body):
     cx, cy = float(body.get("cx", 0.5)) * ctx.world_m, float(body.get("cy", 0.5)) * ctx.world_m
     X, Y = np.meshgrid(cx + g, cy + g)
     res = stage.detail(ctx, data, p, X, Y)
+    detail_legend = stage.legend("detail", ctx, data) or stage.legend(body.get("view") or next(iter(stage.views)), ctx, data)
     # a stage's detail returns heights, or (heights, water mask[, [(mask, rgb) overlays]])
     h, water, overlays = (tuple(res) + ([],))[:3] if isinstance(res, tuple) else (res, None, [])
     img = colormaps.terrain(h, size / m)
@@ -105,6 +118,7 @@ def detail(body):
                       "sampled from": f"the {ctx.res}² grid ({ctx.cell_m:.0f} m): raise Preview for sharper detail",
                       "lowest (m)": int(h.min()), "highest (m)": int(h.max()),
                       "relief in window (m)": int(h.max() - h.min())},
+               legend=dict(kind="items", title="Detail", items=detail_legend) if detail_legend else None,
                timings=[dict(stage=s, ms=round(t * 1000), cached=c) for s, t, c in timings])
     if body.get("height"):
         hs = ndimage.zoom(h, 256 / m, order=1).astype(np.float32)

@@ -99,6 +99,7 @@ class Relief(Stage):
         Float("micro_wavelength_m", "Micro hill size (m)", 650, 100, 1500, 10, "Spacing of the small hills", advanced=True),
     ]
     views = {"relief": "Relief", "height": "Height (grey)"}
+    units = {'relief': 'm', 'height': 'm'}
     height_output = "height_m"
     has_detail = True
 
@@ -197,6 +198,9 @@ class Relief(Stage):
     # ------------------------------------------------------------------ micro relief
     def detail(self, ctx, data, p, x_m, y_m):
         return micro_relief(ctx, data, p, x_m, y_m, data["height_m"])
+
+    def legend(self, view, ctx, data):
+        return None
 
     def render(self, view, ctx, data):
         h = data["height_m"]

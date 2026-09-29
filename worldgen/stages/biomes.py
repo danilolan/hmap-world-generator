@@ -57,6 +57,30 @@ BIOMES = [
 ]
 (NONE, MEADOW, BROADLEAF, CONIFER, WETLAND, HEATH, ALPINE, COAST, ROCK, MIXED, STEPPE, SHRUB, DESERT, SALT, RIPARIAN,
  RAINFOREST) = range(len(BIOMES))
+# what each biome is, for the tool's legend and whoever authors its content (trees, bushes,
+# grass look, flowers, rocks): the real landscapes it stands for
+BIOME_NOTES = {
+    MEADOW: "Open grassland, clearings and commons of the medieval landscape (English downs, Bohemian meadows): "
+            "tall grass, wildflowers, a lone oak or hawthorn; commoner on fertile flats",
+    BROADLEAF: "Mild broadleaf forest: oak, beech, lime, ash (the Bohemian and English lowland woods)",
+    CONIFER: "Cold or poor-soil conifer forest: spruce, silver fir, Scots pine on sand (Scandinavian taiga, the "
+             "Bohemian Forest's high slopes)",
+    WETLAND: "Fens, marshes and bogs: reeds, sedges, alder and willow carr, open water pools",
+    HEATH: "Heather moor and heath on poor acid sand or windswept thin uplands (Lüneburg Heath, Scottish moors): "
+           "heather, gorse, birch, bracken",
+    ALPINE: "Above the treeline: short grass, alpine flowers, dwarf mountain pine near its lower edge (the Alps' "
+            "high pastures)",
+    COAST: "Beaches and dunes by the sea: marram grass, sand, driftwood",
+    ROCK: "Bare rock and scree: high mountains and steep thin-soiled slopes; lichen, a few cushion plants",
+    MIXED: "Cool mixed forest: beech with silver fir and spruce (the Carpathian and Alpine montane belt)",
+    STEPPE: "Dry grassland where rain is scarce (the Pannonian steppe): dry grass, few trees",
+    SHRUB: "Woodland, scrub and grassland mosaic of subhumid country: hawthorn, blackthorn, birch, scattered oaks",
+    DESERT: "Sand desert, only where the climate is arid and the ground sandy: dunes, bare sand (a rare exception)",
+    SALT: "Salt flat: the dry, dead-flat bed of a salt lake; white crust, no plants",
+    RIPARIAN: "Floodplain woods along rivers: alder, willow, ash, poplar; damp, often flooded",
+    RAINFOREST: "Temperate rainforest of the wettest mild coasts (New Zealand, the Pacific Northwest): southern "
+                "beech, ferns, moss on everything",
+}
 FOREST_KIND = {BROADLEAF: 1, CONIFER: 2, MIXED: 3, RIPARIAN: 1, RAINFOREST: 3, SHRUB: 1}
 FIELDS = ("temp_mean", "temp_winter", "temp_summer", "aridity", "rain_mm", "waterlog", "sand", "soil_depth_m",
           "fertility", "salinity", "alluvial", "slope", "coast_dist_km", "wind_exposure", "wetland", "height_eroded")
@@ -170,6 +194,7 @@ class Biomes(Stage):
               advanced=True),
     ]
     views = {"biomes": "Biomes", "forest": "Forest density", "variety": "Distance to a change"}
+    units = {'forest': 'canopy 0-15', 'variety': 'km'}
     height_output = "height_eroded"
     has_detail = True
 
@@ -201,6 +226,12 @@ class Biomes(Stage):
         return h, water, mats + [(trees & (fbm_unit(x_m, y_m, 12, 2, 7) > 0.3), (25, 70, 35))]
 
     # ------------------------------------------------------------------ views
+    def legend(self, view, ctx, data):
+        if view in ("biomes", "detail"):
+            return [{"color": list(BIOMES[b][1]), "label": BIOMES[b][0], "note": BIOME_NOTES[b]}
+                    for b in range(1, len(BIOMES))]
+        return None
+
     def render(self, view, ctx, data):
         land = data["land"]
         if view == "forest":

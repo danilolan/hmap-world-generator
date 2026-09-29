@@ -75,6 +75,7 @@ class Land(Stage):
         Float("fill_lakes_km2", "Fill enclosed water below (km²)", 3.0, 0.0, 30.0, 0.1, advanced=True),
     ]
     views = {"classes": "Landmasses", "land": "Land / sea", "distance": "Distance to coast", "plates": "Over plate borders"}
+    units = {'distance': 'km (negative = sea)'}
 
     def run(self, ctx, inputs, p):
         seed = ctx.stage_seed(self.id)
@@ -169,6 +170,17 @@ class Land(Stage):
         dist_km = (ndimage.distance_transform_edt(land) - ndimage.distance_transform_edt(~land)) / km
         return {"land": land, "land_class": cls, "coast_dist_km": dist_km.astype(np.float32),
                 "landmass_areas": np.sort(areas)[::-1] if cnt else np.zeros(0), "continent_main_km2": cont_main}
+
+    def legend(self, view, ctx, data):
+        if view in ("classes", "plates"):
+            out = [{"color": list(CLASS_COLORS[k]), "label": n} for k, n in CLASS_NAMES.items()]
+            out.append({"color": [40, 80, 140], "label": "sea (darker = deeper)"})
+            if view == "plates":
+                out += [{"color": list(BOUNDARY_COLORS[CONVERGENT]), "label": "colliding plate border"}]
+            return out
+        if view == "land":
+            return [{"color": [235, 235, 235], "label": "land"}, {"color": [25, 25, 25], "label": "sea"}]
+        return None
 
     def render(self, view, ctx, data):
         land, cls, d = data["land"], data["land_class"], data["coast_dist_km"]

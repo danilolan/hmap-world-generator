@@ -66,6 +66,7 @@ class Coast(Stage):
               "Open water beyond this adds no more to the waves", advanced=True),
     ]
     views = {"coast": "Coast types", "exposure": "Wave exposure", "bathymetry": "Sea depth"}
+    units = {'exposure': 'sheltered - exposed', 'bathymetry': 'depth (m)'}
     height_output = "height_eroded"
     has_detail = True
 
@@ -371,6 +372,15 @@ class Coast(Stage):
         return ndimage.map_coordinates(d, [(y_m - y0) / coarse, (x_m - x0) / coarse], order=1, mode="nearest")
 
     # ------------------------------------------------------------------ views
+    def legend(self, view, ctx, data):
+        if view == "coast":
+            return [{"color": list(c), "label": n} for n, c in COASTS[1:]]
+        if view == "detail":
+            return [{"color": [230, 212, 150], "label": "sand beach"}, {"color": [170, 162, 150], "label": "pebble beach"},
+                    {"color": [125, 118, 112], "label": "cliff rock"}, {"color": [120, 115, 110], "label": "rocky shore"},
+                    {"color": [110, 135, 95], "label": "salt marsh"}, {"color": [55, 115, 200], "label": "water"}]
+        return None
+
     def render(self, view, ctx, data):
         land = data["land"]
         h = data["height_eroded"]

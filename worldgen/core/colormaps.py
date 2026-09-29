@@ -1,9 +1,33 @@
 """Colour maps shared by the stages' views, and PNG encoding."""
 import base64
+import contextlib
 import io
+import threading
 
 import numpy as np
 from PIL import Image
+
+
+_REC = threading.local()
+
+
+@contextlib.contextmanager
+def recording():
+    """Collect the colour ramps used while rendering a view, so the page can show a
+    colour bar for continuous maps without each stage declaring one."""
+    _REC.items = []
+    try:
+        yield _REC.items
+    finally:
+        _REC.items = None
+
+
+def _record(stops, lo, hi):
+    items = getattr(_REC, "items", None)
+    if items is not None:
+        t = np.linspace(0, 1, 11)
+        items.append({"kind": "gradient", "colors": _ramp(t, stops).round().astype(int).tolist(),
+                      "lo": float(lo), "hi": float(hi)})
 
 
 def _ramp(values, stops):
@@ -15,6 +39,7 @@ def _ramp(values, stops):
 def gray(a, lo=None, hi=None):
     lo = np.nanmin(a) if lo is None else lo
     hi = np.nanmax(a) if hi is None else hi
+    _record([(0, (0, 0, 0)), (1, (255, 255, 255))], lo, hi)
     t = np.clip((a - lo) / max(hi - lo, 1e-9), 0, 1)
     return np.repeat((t * 255)[..., None], 3, -1).astype(np.uint8)
 
@@ -33,6 +58,8 @@ TERRAIN_STOPS = [(-1000, (15, 30, 75)), (-200, (30, 70, 135)), (-1, (70, 130, 18
 
 def terrain(height_m, cell_m, shade=True):
     """Hypsometric tints with hillshade; water below 0 m."""
+    lo, hi = TERRAIN_STOPS[0][0], TERRAIN_STOPS[-1][0]
+    _record([((v - lo) / (hi - lo), c) for v, c in TERRAIN_STOPS], lo, hi)
     col = _ramp(height_m, TERRAIN_STOPS)
     if shade:
         s = hillshade(height_m, cell_m)[..., None]
@@ -43,16 +70,19 @@ def terrain(height_m, cell_m, shade=True):
 
 def heat(a, lo, hi):
     """Blue (cold) to red (hot)."""
+    stops = [(0, (40, 60, 160)), (0.35, (90, 180, 220)), (0.5, (240, 240, 200)), (0.7, (245, 170, 70)),
+             (1, (180, 30, 30))]
+    _record(stops, lo, hi)
     t = np.clip((a - lo) / max(hi - lo, 1e-9), 0, 1)
-    return _ramp(t, [(0, (40, 60, 160)), (0.35, (90, 180, 220)), (0.5, (240, 240, 200)),
-                     (0.7, (245, 170, 70)), (1, (180, 30, 30))]).astype(np.uint8)
+    return _ramp(t, stops).astype(np.uint8)
 
 
 def moisture(a, lo=0.0, hi=1.0):
     """Dry brown to wet blue-green."""
+    stops = [(0, (170, 120, 70)), (0.4, (215, 205, 120)), (0.7, (90, 170, 90)), (1, (30, 90, 160))]
+    _record(stops, lo, hi)
     t = np.clip((a - lo) / max(hi - lo, 1e-9), 0, 1)
-    return _ramp(t, [(0, (170, 120, 70)), (0.4, (215, 205, 120)), (0.7, (90, 170, 90)),
-                     (1, (30, 90, 160))]).astype(np.uint8)
+    return _ramp(t, stops).astype(np.uint8)
 
 
 def categorical(labels, palette):

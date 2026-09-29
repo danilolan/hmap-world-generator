@@ -259,6 +259,17 @@ class Plates(Stage):
                 "hotspots": np.array(hot, np.float64).reshape(-1, 3), "continent_count": p["continents"]}
 
     # ------------------------------------------------------------------ views
+    def legend(self, view, ctx, data):
+        if view == "boundaries":
+            return [{"color": [255, 60, 40], "label": "collision (brighter = stronger)"},
+                    {"color": [60, 160, 255], "label": "rifting"}]
+        return [{"color": [110, 150, 80], "label": "continental plate"}, {"color": [150, 150, 90], "label": "microcontinent"},
+                {"color": [45, 85, 140], "label": "oceanic plate"},
+                {"color": list(BOUNDARY_COLORS[CONVERGENT]), "label": "converging border"},
+                {"color": list(BOUNDARY_COLORS[DIVERGENT]), "label": "diverging border"},
+                {"color": list(BOUNDARY_COLORS[TRANSFORM]), "label": "sliding border"},
+                {"color": [255, 255, 255], "label": "plate motion (arrow)"}, {"color": [255, 200, 0], "label": "hotspot"}]
+
     def render(self, view, ctx, data):
         plate, kind, btype = data["plate"], data["plate_kind"], data["boundary_type"]
         n = plate.shape[0]

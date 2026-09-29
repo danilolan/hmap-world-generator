@@ -216,6 +216,12 @@ class Export(Stage):
         X, Y = np.meshgrid(g, g)
         return memo(data, "export_preview", lambda: tiles(ctx, data, X, Y))
 
+    def legend(self, view, ctx, data):
+        out = [{"color": list(GROUND_RGB[k]), "label": f"{GROUND_NAMES[k]} (bare)"} for k in (DIRT, SAND, CLAY, GRAVEL, ROCK)]
+        return out + [{"color": [165, 185, 95], "label": "short grass"}, {"color": [70, 135, 50], "label": "tall grass"},
+                      {"color": [200, 190, 130], "label": "short dry grass"},
+                      {"color": [185, 165, 90], "label": "tall dry grass"}, {"color": [55, 115, 200], "label": "water"}]
+
     def render(self, view, ctx, data):
         t = self._preview(ctx, data)
         img = tile_rgb(t)

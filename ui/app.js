@@ -145,12 +145,42 @@ async function renderNow() {
     $("map").src = out.image;
     $("stats").textContent = Object.entries(out.stats || {}).map(([k, v]) => `${k}: ${v}`).join("   ·   ");
     $("timing").textContent = `${out.ms} ms  (` + out.timings.map((t) => `${t.stage} ${t.cached ? "cached" : t.ms + " ms"}`).join(", ") + ")";
+    showLegend(out.legend);
     if (out.height) { lastHeight = out.height; update3d(out.image); }
   } catch (e) {
     if (id === requestId) $("stats").textContent = "Error: " + e.message;
   } finally {
     if (id === requestId) $("busy").classList.add("hidden");
   }
+}
+
+// ---------------------------------------------------------------- legend
+// What the colours mean: a list of swatches (categorical maps, with notes for the biomes)
+// or a colour bar (continuous maps). Collapsed state is remembered.
+function showLegend(lg) {
+  const el = $("legend");
+  if (!lg) { el.classList.add("hidden"); return; }
+  const rgb = (c) => `rgb(${c[0]},${c[1]},${c[2]})`;
+  const esc = (s) => String(s).replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
+  let body = "";
+  if (lg.kind === "items") {
+    body = lg.items.map((it) => `<div class="lgItem"><span class="sw" style="background:${rgb(it.color)}"></span>
+      <div><div>${esc(it.label)}</div>${it.note ? `<div class="lgNote">${esc(it.note)}</div>` : ""}</div></div>`).join("");
+  } else {
+    const fmtN = (v) => Math.abs(v) >= 100 ? v.toFixed(0) : Number(v.toFixed(2)).toString();
+    body = `<div class="lgBar" style="background:linear-gradient(to right, ${lg.colors.map(rgb).join(",")})"></div>
+      <div class="lgScale"><span>${fmtN(lg.lo)}</span><span>${esc(lg.unit || "")}</span><span>${fmtN(lg.hi)}</span></div>`;
+  }
+  const stored = () => { try { return localStorage.getItem("worldgenLegendCollapsed") === "1"; } catch (e) { return false; } };
+  const collapsed = stored();
+  el.innerHTML = `<div class="lgHead"><strong>${esc(lg.title || "Legend")}</strong><button id="lgToggle">${collapsed ? "show" : "hide"}</button></div>
+    <div class="lgBody${collapsed ? " hidden" : ""}">${body}</div>`;
+  el.classList.remove("hidden");
+  $("lgToggle").onclick = () => {
+    const now = stored() ? "0" : "1";
+    try { localStorage.setItem("worldgenLegendCollapsed", now); } catch (e) {}
+    showLegend(lg);
+  };
 }
 
 // ---------------------------------------------------------------- export

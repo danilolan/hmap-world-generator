@@ -106,6 +106,7 @@ class Soil(Stage):
     ]
     views = {"fertility": "Fertility", "soil": "Soil groups", "depth": "Soil depth", "texture": "Texture",
              "parent": "Parent material", "reach": "Distance to fertile land"}
+    units = {'depth': 'm'}
     height_output = "height_eroded"
     has_detail = True
 
@@ -305,6 +306,32 @@ class Soil(Stage):
             return np.where(land, 99.0, 0.0), fertile
         d = ndimage.distance_transform_edt(~fertile) * ctx.cell_m / 1000.0
         return np.where(land, d, 0.0), fertile
+
+    def legend(self, view, ctx, data):
+        if view == "soil":
+            return [{"color": list(c), "label": n} for n, c in SOILS[1:]]
+        if view == "parent":
+            pal = [(210, 150, 150), (220, 190, 120), (120, 120, 150), (220, 220, 200), (80, 70, 80),
+                   (140, 110, 60), (60, 140, 90), (160, 140, 100), (100, 150, 200), (240, 225, 160), (230, 200, 90)]
+            names = list(ROCKS) + ["river gravel and sand", "river silt and clay", "slope colluvium", "lake clay",
+                                   "dune sand", "loess"]
+            return [{"color": list(c), "label": n} for c, n in zip(pal, names)]
+        if view == "texture":
+            return [{"color": [255, 0, 0], "label": "red = sand"}, {"color": [0, 255, 0], "label": "green = silt"},
+                    {"color": [0, 0, 255], "label": "blue = clay"}]
+        if view == "fertility":
+            return [{"color": c, "label": l} for c, l in (([150, 120, 95], "0 barren"), ([205, 180, 120], "0.3 poor"),
+                    ([215, 215, 120], "0.5 fertile (farming pays)"), ([120, 175, 80], "0.75 very fertile"),
+                    ([40, 115, 45], "1 the richest"))]
+        if view == "reach":
+            return [{"color": [70, 150, 60], "label": "fertile land"},
+                    {"color": [240, 240, 200], "label": "infertile, fertile land near (blue) to far (red)"},
+                    {"color": [120, 0, 120], "label": "beyond the walking rule"}]
+        if view == "detail":
+            return [{"color": [140, 138, 135], "label": "rock"}, {"color": [170, 160, 145], "label": "gravel"},
+                    {"color": [225, 210, 160], "label": "sand"}, {"color": [160, 110, 80], "label": "clay"},
+                    {"color": [190, 180, 105], "label": "dry grass"}, {"color": [55, 115, 200], "label": "water"}]
+        return None
 
     def render(self, view, ctx, data):
         land = data["land"]

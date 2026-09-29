@@ -57,3 +57,12 @@ button:disabled, select:disabled { opacity: .4; cursor: default; }
 .exportBox input[type=text] { background: var(--panel2); color: var(--text); border: 1px solid var(--line);
   border-radius: 4px; padding: 3px 6px; width: 170px; }
 .exportBox button { width: 100%; margin-top: 4px; }
+#legend { position: absolute; left: 10px; bottom: 10px; max-width: 360px; max-height: 70%; overflow: auto;
+  background: rgba(22, 24, 28, .88); border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; font-size: 12px; }
+.lgHead { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 4px; }
+.lgHead button { padding: 1px 8px; font-size: 11px; }
+.lgItem { display: flex; gap: 8px; align-items: flex-start; margin: 3px 0; }
+.lgItem .sw { flex: 0 0 14px; height: 14px; border-radius: 3px; border: 1px solid rgba(255,255,255,.25); margin-top: 1px; }
+.lgNote { color: var(--muted); font-size: 11px; }
+.lgBar { width: 240px; height: 12px; border-radius: 3px; border: 1px solid rgba(255,255,255,.25); }
+.lgScale { display: flex; justify-content: space-between; color: var(--muted); font-size: 11px; margin-top: 2px; }

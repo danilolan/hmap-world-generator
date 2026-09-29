@@ -76,6 +76,7 @@ class Character(Stage):
     ]
     views = {"character": "Character", "uplift": "Uplift", "rift": "Rift", "rock": "Rock types",
              "rugged": "Rugged rock"}
+    units = {'uplift': '0-1', 'rift': '0-1', 'rugged': '0-1'}
 
     def run(self, ctx, inputs, p):
         seed = ctx.stage_seed(self.id)
@@ -159,6 +160,16 @@ class Character(Stage):
         region = fbm_unit(X, Y, wl * 1.5, 3, seed + 10)
         rugged = _smoothstep((region + 1.2 * hard + 0.4 * young - 1.6 + 2.0 * p["rugged"]) / 0.8) * (hard > 0.05)
         return rock_w, rugged.astype(np.float32)
+
+    def legend(self, view, ctx, data):
+        if view == "character":
+            names = {"young": "young mountain range", "plateau": "plateau", "old": "old rounded hill country",
+                     "plain": "plain"}
+            return [{"color": [int(v) for v in c], "label": names.get(k, k)} for k, c in STYLE_COLORS.items()]
+        if view == "rock":
+            pal = [(210, 150, 150), (220, 190, 120), (120, 120, 150), (220, 220, 200), (80, 70, 80)]
+            return [{"color": list(c), "label": n} for c, n in zip(pal, ROCK_TYPES)]
+        return None
 
     def render(self, view, ctx, data):
         land = data["land"]

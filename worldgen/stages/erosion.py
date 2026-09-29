@@ -123,6 +123,7 @@ class Erosion(Stage):
               "Small bumps that make water gather into river systems on smooth ramps", advanced=True),
     ]
     views = {"relief": "Relief", "water": "Rivers and lakes", "change": "Erosion / deposition", "drainage": "Drainage area"}
+    units = {'relief': 'm', 'water': 'm', 'drainage': 'log10 km2'}
     height_output = "height_eroded"
     has_detail = True
 
@@ -274,6 +275,11 @@ class Erosion(Stage):
         return h.astype(np.float32), water
 
     # ------------------------------------------------------------------ views
+    def legend(self, view, ctx, data):
+        if view == "change":
+            return [{"color": [200, 60, 40], "label": "eroded (up to 200 m)"}, {"color": [60, 170, 80], "label": "deposited"}]
+        return None
+
     def render(self, view, ctx, data):
         h = data["height_eroded"]
         if view == "change":

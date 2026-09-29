@@ -98,6 +98,7 @@ class Hydrology(Stage):
     ]
     views = {"water": "Water", "discharge": "Discharge", "wetness": "Wetness and floodplains",
              "walk": "Distance to water"}
+    units = {'discharge': 'log10 m3/s', 'walk': 'km to water'}
     height_output = "height_eroded"
     has_detail = True
 
@@ -427,6 +428,24 @@ class Hydrology(Stage):
         f[data["water_lake_id"] > 0] = LAKE
         f[~data["land"]] = COAST
         return f
+
+    def legend(self, view, ctx, data):
+        if view in ("water", "detail"):
+            return [{"color": [110, 160, 225], "label": "brook (under 2.5 m, step over it)"},
+                    {"color": [170, 185, 205], "label": "seasonal brook (dry in summer)"},
+                    {"color": [60, 120, 220], "label": "stream"},
+                    {"color": [150, 170, 200], "label": "seasonal stream"},
+                    {"color": [30, 80, 200], "label": "river (unfordable)"},
+                    {"color": [60, 130, 220], "label": "lake"},
+                    {"color": [110, 175, 190], "label": "salt lake"},
+                    {"color": [238, 234, 222], "label": "salt flat"},
+                    {"color": [95, 130, 80], "label": "wetland"},
+                    {"color": [70, 140, 235], "label": "pond, tarn, oxbow, spring pool"}]
+        if view == "wetness":
+            return [{"color": [170, 120, 70], "label": "dry ground"}, {"color": [30, 90, 160], "label": "wet hollows"},
+                    {"color": [120, 200, 230], "label": "floodplain (tinted)"}, {"color": [80, 120, 70], "label": "wetland"},
+                    {"color": [60, 130, 220], "label": "lake"}]
+        return None
 
     def render(self, view, ctx, data):
         land, h = data["land"], data["height_eroded"]

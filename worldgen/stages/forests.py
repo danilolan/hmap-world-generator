@@ -200,6 +200,7 @@ class Forests(Stage):
     views = {"species": "Dominant species", "density": "Canopy density", "kind": "Broadleaf / conifer",
              "flowers": "Flower richness", "rockiness": "Rockiness", "undergrowth": "Moist undergrowth",
              "dead_wood": "Dead wood"}
+    units = {'density': 'canopy 0-15', 'flowers': '0-15', 'rockiness': '0-15', 'undergrowth': '0-15', 'dead_wood': '0-15'}
     height_output = "height_eroded"
     has_detail = True
 
@@ -250,6 +251,17 @@ class Forests(Stage):
         crown = fbm_unit(x_m, y_m, 10, 2, 11) + 1.6 * (dens / 15.0) - 0.9 > 0
         trees = [((species == s) & crown & ~water & (h > 0), SPECIES[s][1]) for s in range(1, len(SPECIES))]
         return h, water, overlays + ground + [t for t in trees if t[0].any()]
+
+    def legend(self, view, ctx, data):
+        if view in ("species", "detail"):
+            kinds = {1: "broadleaf", 2: "conifer"}
+            return [{"color": list(SPECIES[s][1]), "label": SPECIES[s][0], "note": kinds[SPECIES[s][2]]}
+                    for s in range(1, len(SPECIES))] + [{"color": [215, 210, 180], "label": "no trees"}]
+        if view == "kind":
+            return [{"color": [110, 170, 70], "label": "broadleaf (darker = denser)"},
+                    {"color": [30, 85, 60], "label": "conifer (darker = denser)"},
+                    {"color": [215, 210, 180], "label": "no trees"}]
+        return None
 
     def render(self, view, ctx, data):
         land = data["land"]

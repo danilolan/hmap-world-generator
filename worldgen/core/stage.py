@@ -45,6 +45,7 @@ class Stage:
     views = {}               # view id -> label
     height_output = None     # output key used by the 3D view, if any
     has_detail = False       # True if detail() can render a small window at high resolution
+    units = {}               # view id -> unit of its colour bar (continuous views)
 
     def defaults(self) -> dict:
         return {p.key: p.default for p in self.params}
@@ -67,6 +68,12 @@ class Stage:
         """Heights (m) at world coordinates finer than the preview grid (the detail
         window): the macro result sampled there plus the stage's micro relief."""
         raise NotImplementedError
+
+    def legend(self, view: str, ctx: Context, data: dict):
+        """What the colours of a view mean: a list of {"color": [r, g, b], "label": str,
+        "note": str (optional)} for categorical maps, or None to let the page show the
+        colour bar of the ramp the view used (continuous maps)."""
+        return None
 
     def stats(self, ctx: Context, data: dict) -> dict:
         """Short numbers shown under the map (optional)."""

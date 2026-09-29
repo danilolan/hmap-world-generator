@@ -165,6 +165,7 @@ class Climate(Stage):
     ]
     views = {"temperature": "Mean temperature", "winter": "Winter", "rain": "Rainfall", "aridity": "Aridity",
              "wind": "Wind (direction and exposure)"}
+    units = {'temperature': '°C', 'winter': '°C', 'rain': 'mm/year', 'wind': 'sheltered - exposed'}
 
     def run(self, ctx, inputs, p):
         seed = ctx.stage_seed(self.id)
@@ -217,6 +218,14 @@ class Climate(Stage):
                 "temp_summer": t_summer.astype(np.float32), "rain_mm": rain.astype(np.float32),
                 "aridity": aridity.astype(np.float32), "wind_exposure": exposure.astype(np.float32),
                 "wind_dy": dy.astype(np.float32), "wind_dx": dx.astype(np.float32), "climate_params": dict(p)}
+
+    def legend(self, view, ctx, data):
+        if view == "aridity":
+            names = ["hyper-arid (under 0.05)", "arid (0.05-0.2)", "semi-arid (0.2-0.5)", "dry subhumid (0.5-0.65)",
+                     "humid (0.65-1)", "very humid (over 1)"]
+            cols = [(200, 150, 90), (220, 190, 120), (225, 215, 150), (170, 200, 120), (100, 170, 90), (50, 130, 110)]
+            return [{"color": list(c), "label": n, "note": "rain / potential evaporation"} for c, n in zip(cols, names)]
+        return None
 
     def render(self, view, ctx, data):
         land = data["land"]
