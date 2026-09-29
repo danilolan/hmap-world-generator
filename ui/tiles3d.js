@@ -247,6 +247,9 @@ function trees(w, clip) {
       if (x < w.b || z < w.b || x > w.b + w.size || z > w.b + w.size) continue;
       const h = surface(w, x, z), level = w.still_levels[w.stillIds[w.cell(x, z)]];
       if (h <= 0.2 || (level != null && h < level)) continue;
+      // trees need soil, as in the game's scatter: none on bare rock or gravel tiles
+      const g = w.tile(Math.floor(x), Math.floor(z)).ground;
+      if (g === 3 || g === 4) continue;
       spots[sp.kind].push([...place(w, x, z), h * ex, sp.color, 0.8 + rnd() * 0.4]);
     }
   }

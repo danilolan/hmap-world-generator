@@ -122,6 +122,12 @@ def block(ctx, data, X0, Z0, n=BLOCK, margin=MARGIN):
     cell = lambda a: a.reshape(c, ECO, c, ECO).mean(axis=(1, 3))
     cx, cy = cell(x_m), cell(y_m)
     dens, species, biome, mods = X.forest_points(ctx, data, cx, cy, cell(dry.astype(np.float64)) >= 0.5, float(ECO * STEP_M))
+    # trees need soil: the canopy thins by the cell's share of bare rock tiles (scree
+    # gravel counts half), which the smooth soil fields behind the canopy cannot see
+    g = base["ground"]
+    hostile = cell(((g == X.ROCK) + 0.5 * (g == X.GRAVEL)).astype(np.float64) * dry)
+    dens = np.rint(dens * np.clip(1.0 - hostile, 0.0, 1.0)).astype(dens.dtype)
+    species = np.where(dens > 0, species, 0).astype(species.dtype)
     up = lambda a: np.repeat(np.repeat(a, ECO, 0), ECO, 1)
     canopy, sp = up(dens), up(species)
     t = X.tiles_cover(ctx, data, x_m, y_m, base, canopy, sp)
