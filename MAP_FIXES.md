@@ -68,7 +68,7 @@ These are fixes made in the generator after a map was imported and seen in the g
 - [ ] **River stubs and lens-shaped bulges at junctions.**
   - Seen in the detail window: a short dead-end branch sticking out of a river, and the bed swelling where a tributary joins.
   - Cause: tributaries of a few cells were traced as channels, and at a junction the grid's flow ran side by side with the receiving channel for several cells, which doubled the bed.
-  - Fix, commit `CONF`: the side-by-side stretch is cut, so a tributary meets its channel at an angle at one point; tributaries shorter than 150 m are dropped. On the v2 world, short tributaries went from 160 to 12 (those left end at the sea or a lake) and points running inside another channel from 7807 to 783.
+  - Fix, commit `abebc62`: the side-by-side stretch is cut, so a tributary meets its channel at an angle at one point; tributaries shorter than 150 m are dropped. On the v2 world, short tributaries went from 160 to 12 (those left end at the sea or a lake) and points running inside another channel from 7807 to 783.
   - Check in game: confluences are single Y joins, with no stubs.
 
 ## Known, not fixed yet
