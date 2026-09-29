@@ -69,3 +69,19 @@ button:disabled, select:disabled { opacity: .4; cursor: default; }
 .lgItem.pick { cursor: pointer; border-radius: 4px; padding: 1px 3px; margin: 1px -3px; }
 .lgItem.pick:hover { background: rgba(111, 177, 255, .12); }
 .lgItem.sel { background: rgba(111, 177, 255, .25); outline: 1px solid var(--accent); }
+#exportPanel { position: absolute; right: 10px; bottom: 10px; width: 330px; background: rgba(22, 24, 28, .94);
+  border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; font-size: 12px; }
+#exportPanel.ep-failed { border-color: #d0504a; }
+#exportPanel.ep-done { border-color: #4fa864; }
+.epHead { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
+.epHead button { padding: 1px 8px; font-size: 11px; }
+.epBar { height: 10px; border-radius: 5px; background: var(--panel2); overflow: hidden; margin-bottom: 6px; }
+.epBar > div { height: 100%; background: var(--accent); transition: width .5s; }
+.ep-done .epBar > div { background: #4fa864; }
+.epBar.busy > div { background: repeating-linear-gradient(45deg, var(--accent2) 0 10px, var(--accent) 10px 20px);
+  background-size: 28px 28px; animation: epMove 1s linear infinite; }
+@keyframes epMove { from { background-position: 0 0; } to { background-position: 28px 0; } }
+.epLine { margin: 2px 0; }
+.epError { color: #ff8a80; margin: 4px 0; font-weight: 600; }
+.epWarn { color: #ffcc66; margin-top: 4px; }
+#exportPanel pre { max-height: 200px; overflow: auto; white-space: pre-wrap; font-size: 10px; background: #0e1013; padding: 4px; }

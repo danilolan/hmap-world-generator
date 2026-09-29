@@ -184,25 +184,36 @@ def export_start(body):
     return {"started": map_id, "full_dir": str(full), "package_dir": str(package)}
 
 
+STALLED_S = 30 * 60      # no progress report for this long: the export is taken as dead
+
+
 def export_status():
+    """The running or last export's progress. A process that died, or one silent for
+    STALLED_S (the pipeline step reports nothing for up to ~10 min at 2048²), is reported as
+    failed, with the end of its log."""
     full = EXPORT["full"]
-    if full is None:
+    known = full is not None
+    if not known:
         # after a restart of the tool: the most recent export on disk (it may still be running)
         found = sorted(FULL_ROOT.glob("*/export_status.json"), key=lambda p: p.stat().st_mtime)
         if not found:
             return {"state": "none"}
-        try:
-            return json.loads(found[-1].read_text(encoding="utf-8"))
-        except (OSError, ValueError):
-            return {"state": "none"}
+        full = found[-1].parent
     try:
         st = json.loads((full / "export_status.json").read_text(encoding="utf-8"))
     except (OSError, ValueError):
-        st = {"state": "running", "step": "starting"}
-    running = EXPORT["proc"] is not None and EXPORT["proc"].poll() is None
-    if st.get("state") == "running" and not running:
-        log = (full / "export.log").read_text(encoding="utf-8", errors="replace")[-1500:]
-        st = dict(st, state="failed", error="the export process stopped", trace=log)
+        st = {"state": "running", "step": "starting", "started": time.time(), "time": time.time()}
+    tail = lambda: (full / "export.log").read_text(encoding="utf-8", errors="replace")[-3000:] \
+        if (full / "export.log").exists() else ""
+    if st.get("state") == "running":
+        dead = known and EXPORT["proc"] is not None and EXPORT["proc"].poll() is not None
+        if dead:
+            st = dict(st, state="failed", error="the export process stopped unexpectedly", trace=tail())
+        elif time.time() - st.get("time", time.time()) > STALLED_S:
+            st = dict(st, state="failed", error=f"no progress for {STALLED_S // 60} min: the export process has "
+                                                 "probably stopped", trace=tail())
+    st["now"] = time.time()
+    st.setdefault("full_dir", str(full))
     return st
 
 

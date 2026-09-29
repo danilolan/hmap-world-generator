@@ -258,34 +258,88 @@ function exportBox() {
 
 async function startExport(overwrite) {
   const body = { ...world(), res: Number($("exportRes").value), params: state.params, map_id: $("mapId").value.trim(), overwrite };
-  const out = await api("/api/export", body);
+  let out;
+  try { out = await api("/api/export", body); } catch (e) {
+    showExport({ state: "failed", map_id: body.map_id, error: "could not start the export: " + e.message });
+    return;
+  }
   if (out.exists) {
     if (confirm(`${body.map_id} exists. Replace it?
 ${out.package_dir}
 ${out.full_dir}`)) return startExport(true);
     return;
   }
-  if (out.error) { $("exportStatus").textContent = out.error; return; }
+  if (out.error) { showExport({ state: "failed", map_id: body.map_id, error: out.error }); return; }
+  exportDismissed = false;
+  showExport({ state: "running", step: "starting", map_id: body.map_id, done: 0, total: 400, started: Date.now() / 1000,
+    now: Date.now() / 1000 });
   pollExport();
 }
 
+// Export progress: a panel over the map, whatever stage is selected, polled every 2 s while
+// an export runs: files written of the total, how many are left, time spent and left; the
+// error (and the end of the log) if it fails; a warning if the tool cannot be reached.
+let exportDismissed = false, exportLastOk = null;
+
 async function pollExport() {
   let st;
-  try { st = await api("/api/export"); } catch (e) { return; }
-  const el = $("exportStatus");
-  if (!el || st.state === "none") return;
+  try {
+    st = await api("/api/export");
+    exportLastOk = st;
+  } catch (e) {
+    // the tool itself is down or restarting: say so, keep trying while an export was running
+    if (exportLastOk && exportLastOk.state === "running") {
+      showExport({ ...exportLastOk, unreachable: e.message });
+      setTimeout(pollExport, 4000);
+    }
+    return;
+  }
+  if (st.state === "none") return;
   const btn = $("exportBtn");
   if (btn) btn.disabled = st.state === "running";
+  showExport(st);
+  if (st.state === "running") setTimeout(pollExport, 2000);
+}
+
+function showExport(st) {
+  const el = $("exportPanel");
+  const small = $("exportStatus");
+  if (!el) return;
+  const esc = (s) => String(s ?? "").replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
+  const mins = (s) => s == null ? "?" : s < 90 ? `${Math.round(s)} s` : `${Math.round(s / 60)} min`;
+  const elapsed = st.started ? (st.now || Date.now() / 1000) - st.started : null;
+  let html = "";
   if (st.state === "running") {
-    const eta = st.eta_s != null ? `, ~${Math.ceil(st.eta_s / 60)} min left` : "";
-    el.textContent = `${st.map_id}: ${st.step}` + (st.step === "tiles" ? ` ${st.done}/${st.total} files${eta}` : "…");
-    setTimeout(pollExport, 3000);
+    const total = st.total || 400, done = st.done || 0, tiles = st.step === "tiles";
+    const pct = tiles ? Math.round(done / total * 100) : 0;
+    const steps = { starting: "starting", pipeline: "running the stages (erosion takes minutes at 2048²)",
+      "spawn and water tables": "spawn point and water tables", tiles: "writing the 2 m files" };
+    html = `<div class="epHead"><strong>Exporting ${esc(st.map_id)}</strong><span>${pct}%</span></div>
+      <div class="epBar${tiles ? "" : " busy"}"><div style="width:${tiles ? pct : 100}%"></div></div>
+      <div class="epLine">${esc(steps[st.step] || st.step)}</div>
+      <div class="epLine"><b>${done}</b> of ${total} files written · <b>${total - done}</b> left</div>
+      <div class="epLine muted">elapsed ${mins(elapsed)}${tiles && st.eta_s != null ? ` · about ${mins(st.eta_s)} left` : ""}</div>
+      ${st.unreachable ? `<div class="epWarn">The tool is not answering (${esc(st.unreachable)}); the export runs on by itself — retrying…</div>` : ""}`;
+    if (small) small.textContent = `${st.map_id}: ${done}/${total} files`;
   } else if (st.state === "done") {
-    el.textContent = `${st.map_id} exported in ${st.minutes} min (spawn corner ${st.spawn}). ${st.package_dir}`;
+    html = `<div class="epHead"><strong>✓ ${esc(st.map_id)} exported</strong><button id="epClose">close</button></div>
+      <div class="epBar"><div style="width:100%"></div></div>
+      <div class="epLine">${st.total || 400} files in ${esc(st.minutes)} min · spawn corner ${esc(st.spawn)}</div>
+      <div class="epLine muted">${esc(st.package_dir)}</div>`;
+    if (small) small.textContent = `${st.map_id} exported in ${st.minutes} min`;
   } else {
-    el.textContent = `${st.map_id || "export"} failed: ${st.error}`;
-    console.error(st.trace);
+    html = `<div class="epHead"><strong>✗ Export of ${esc(st.map_id || "the map")} failed</strong><button id="epClose">close</button></div>
+      <div class="epError">${esc(st.error || "unknown error")}</div>
+      ${st.step ? `<div class="epLine">during: ${esc(st.step)}${st.total ? ` (${st.done || 0} of ${st.total} files written)` : ""}</div>` : ""}
+      ${st.full_dir ? `<div class="epLine muted">log: ${esc(st.full_dir)}\\export.log</div>` : ""}
+      ${st.trace ? `<details><summary>details</summary><pre>${esc(st.trace)}</pre></details>` : ""}`;
+    if (small) small.textContent = `${st.map_id || "export"} failed: ${st.error}`;
   }
+  if (st.state !== "running" && exportDismissed) return;
+  el.className = "ep-" + st.state;
+  el.innerHTML = html;
+  const close = $("epClose");
+  if (close) close.onclick = () => { exportDismissed = true; el.classList.add("hidden"); };
 }
 
 // ---------------------------------------------------------------- 3D view

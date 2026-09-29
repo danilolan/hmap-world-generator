@@ -49,11 +49,15 @@ ECOLOGY_VERSION = 1
 SOIL_UNIT_M = 0.1                # soil depth files: u8 per corner, 0.1 m (0-25.5 m)
 
 
+STARTED = [time.time()]        # when this export began (every progress report carries it)
+
+
 def status(path, **kw):
     """Write the progress file. On Windows the replace fails while a reader (the tool,
     another session) has the file open: retry briefly, then skip this update; progress
     reports never stop the export."""
     kw["time"] = time.time()
+    kw.setdefault("started", STARTED[0])
     tmp = Path(str(path) + ".tmp")
     tmp.write_text(json.dumps(kw), encoding="utf-8")
     for _ in range(20):
@@ -251,7 +255,7 @@ def run(job_path):
     package = Path(job["package_dir"])
     full.mkdir(parents=True, exist_ok=True)
     st = full / "export_status.json"
-    t_start = time.time()
+    t_start = STARTED[0] = time.time()
     status(st, state="running", step="pipeline", done=0, total=FILES * FILES, map_id=job["map_id"])
     pipe = Pipeline(STAGES)
     ctx, data, _ = pipe.compute(job["seed"], job["res"], job["params"], "export", job["scale"], job["vscale"])
