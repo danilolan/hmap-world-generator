@@ -62,6 +62,9 @@ class Coast(Stage):
         Float("estuary", "Estuary size", 1.0, 0.2, 3.0, 0.01,
               "How wide the estuaries open toward the sea (their mouths reach tens of river widths)"),
         Float("marsh", "Salt marshes", 1.0, 0.0, 2.0, 0.01, "How much of the sheltered low coast is salt marsh"),
+        Float("tide_m", "Tidal range (m)", 2.0, 0.3, 6.0, 0.1,
+              "Height between low and high tide: salt marshes build up within it, mudflats lie below it",
+              advanced=True),
         Float("fetch_km", "Longest fetch counted (km)", 20, 5, 60, 1,
               "Open water beyond this adds no more to the waves", advanced=True),
     ]
@@ -322,9 +325,12 @@ class Coast(Stage):
         # the ground's height above the marsh level and toward the zone's inland edge, and
         # follows the coast type's smooth weight, so it never leaves a wall (a hard clamp over
         # 180 m of coast cut 8 m land down to 1 m and left a step at the zone's edge)
-        level = 0.3 + 0.8 * _smoothstep(d_m / 250.0) + 0.2 * n1
+        # the marsh platform builds up toward high tide inland; ground more than half a tidal
+        # range above it is beyond the tides' reach
+        tide = p["tide_m"]
+        level = tide * (0.15 + 0.4 * _smoothstep(d_m / 250.0) + 0.1 * n1)
         wm = _smoothstep(wt[MARSH] / 0.5) * (1.0 - _smoothstep((d_m - 150.0 - 80.0 * n1) / 80.0)) \
-            * (1.0 - _smoothstep((h - level - 1.0) / 3.0)) * (d_m > -20.0)
+            * (1.0 - _smoothstep((h - level - 0.5 * tide) / (1.5 * tide))) * (d_m > -20.0)
         marsh = near & (ctype == MARSH) & (wm > 0.5)
         h = np.where(h > 0, h + wm * (np.minimum(h, level) - h), h)
         h = self._tidy_waterline(h, step)
@@ -337,12 +343,14 @@ class Coast(Stage):
 
     @staticmethod
     def _tidy_waterline(h, step, pool_m2=3000.0, sliver_m2=600.0):
-        """The shore's small changes of height right at sea level (fine coastline noise,
-        beach, marsh and cliff profiles) can cut off little pools of sea on land and leave
-        slivers of land in the water. Pools of sea smaller than pool_m2 not reaching the
-        window's edge become land just above the tide; slivers of land smaller than
-        sliver_m2 become sea. (Lakes, ponds and rivers are water above sea level or carved
-        later, so they are untouched.)"""
+        """The shore's sediment at work on what the profiles leave right at sea level: a
+        pool of sea cut off behind the shore, smaller than pool_m2, is a lagoon the waves
+        and wind fill with sand within years, so it becomes land just above the tide; a
+        sliver of land smaller than sliver_m2 standing in the water is a bar the waves wash
+        away, so it becomes sea. Pools touching the window's edge are left (their true size
+        is unknown here). Lakes, ponds and rivers are water above sea level or carved later,
+        so they are untouched. Since the coastline noise was capped by the slope it acts on
+        about 0.03 % of shore cells."""
         out = h.copy()
         for is_sea, limit, fix in ((True, pool_m2, 0.15), (False, sliver_m2, -0.15)):
             mask = (out <= 0) if is_sea else (out > 0)

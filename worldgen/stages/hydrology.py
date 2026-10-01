@@ -36,7 +36,7 @@ from ..core.lines import chaikin, meander
 from ..core.memo import memo
 from ..core.params import Float
 from ..core.pointnoise import fbm_unit
-from ..core.raster_carve import carve_channels, carve_ponds, freeboard
+from ..core.raster_carve import carve_channels, carve_ponds
 from ..core.stage import Stage
 from .erosion import ground, lake_water, routing_roughness
 
@@ -44,8 +44,6 @@ SECONDS_PER_YEAR = 31_557_600.0
 BROOK_MAX_M = 2.5                  # a brook can be stepped or jumped across
 BROOK, STREAM, RIVER = 1, 2, 3     # channel classes
 POND, TARN, OXBOW, SPRING_POOL = 1, 2, 3, 4    # small water kinds
-PLAYA_M = 3.0                      # a salt flat covers the basin floor up to this above its water
-MIN_TRIBUTARY_M = 150.0            # shorter tributaries reach the river as sheet flow
 WATERFALL_MIN_M3S = 0.02           # below this a steep step is a trickle, not a sight
 COAST, LAKE, WETLAND, CHANNEL, SMALL_WATER = 1, 2, 3, 4, 5    # what a walk meets
 
@@ -95,6 +93,13 @@ class Hydrology(Stage):
         Float("corridor", "Valley floor width (× channel width)", 4.0, 1.0, 12.0, 0.1,
               "Around each channel, micro relief bumps above the water are cut down into a valley floor reaching this many "
               "channel widths (plus 50 m)", advanced=True),
+        Float("flood_ratio", "Floods over the mean flow (×)", 10, 2, 40, 0.5,
+              "Channels are cut by their recurring floods (bankfull flow, about the yearly flood), this many times "
+              "the mean flow: banks as high and beds as wide as that flood's water (hydraulic geometry). A closed lake "
+              "rises to it in wet years, and the ring it then floods is its salt flat", advanced=True),
+        Float("min_tributary_m", "Shortest tributary (m)", 150, 0, 600, 10,
+              "A tributary shorter than this from its source to the channel it joins is not a channel of its own: "
+              "such a short run reaches the river as sheet flow", advanced=True),
         Float("walk_km", "20-minute rule: walk length (km)", 1.7, 0.5, 5.0, 0.05,
               "Straight walks from random land points: how many meet water within this distance", advanced=True),
     ]
@@ -197,11 +202,11 @@ class Hydrology(Stage):
     # ------------------------------------------------------------------ lakes
     @staticmethod
     def _lakes(lakes5, lid5, h, rain, pet, inflow, lake_net, cell_area, dx, p):
-        """Stage 5's trapped basins by water balance: open (spilling), salt lake (shrunk
-        until evaporation equals inflow; the exposed bed is a salt flat) or salt flat. A
-        salt flat (playa) is only the basin's floor, up to PLAYA_M above the water left
-        (or the lowest bed): the basin's sides above it are ordinary land, not salt
-        climbing tens of metres up the slopes. `salt_level` is the flat's height."""
+        """Stage 5's trapped basins by water balance: open (spilling),         salt lake (shrunk
+        until evaporation equals inflow; the exposed bed is a salt flat) or salt flat. The
+        salt flat (playa) is the ring a wet year floods: the lake with flood_ratio times its
+        inflow, which evaporates again and leaves its salt and mud; the basin's sides above
+        it are ordinary land. `salt_level` is the flat's height."""
         n = h.shape[0]
         lake_map = np.zeros((n, n), np.int32)
         lake_level = np.zeros((n, n), np.float32)
@@ -221,7 +226,9 @@ class Hydrology(Stage):
                 else:
                     kind, level = "salt lake", float(beds[min(keep, beds.size - 1)])
                     wet = cells & (h < level)
-                flat = cells & ~wet & (h < level + PLAYA_M)
+                keep_wet = int(inflow[k] * p["flood_ratio"] / loss) if loss > 0 else int(cells.sum())
+                level_wet = float(beds[min(max(keep_wet, 1), beds.size - 1)])
+                flat = cells & ~wet & (h <= max(level_wet, level))
                 salt |= flat
                 salt_level[flat] = level
             lid = len(lakes) + 1
@@ -294,7 +301,7 @@ class Hydrology(Stage):
             falls.append(line_falls)
             heads_kept.append(s)
             joins.append(bool(lf[end]) and lake_idx[end] < 0 and end != ch[-1])
-        keep = _confluences(lines, joins)
+        keep = _confluences(lines, joins, p["min_tributary_m"])
         springs = [((s % n + 0.5) * dx, (s // n + 0.5) * dx) for s, k in zip(heads_kept, keep) if k and not SE[s]]
         falls = [f for fl, k in zip(falls, keep) if k for f in fl]
         lines = [line for line, k in zip(lines, keep) if k]
@@ -304,7 +311,7 @@ class Hydrology(Stage):
     def _surface(ctx, data, pe, lines, p):
         """Water surface along each line and the carving segments. The surface is the
         full ground (macro and micro relief, as the detail window and the export see it)
-        under each final point, lowered by the height of the banks (freeboard), made to
+        under each final point, lowered by the height of the banks, made to
         run only downhill: water never sits above the
         ground under its line, so a channel cuts through bumps and never rides over them
         on an embankment. Segment rows: ax, ay, bx, by, half width, depth, surface at a,
@@ -319,9 +326,11 @@ class Hydrology(Stage):
             u = under[k:k + len(line)]
             k += len(line)
             u[-1] = min(u[-1], line[-1, 3])                     # the mouth: sea level or the joined channel
-            # below the ground by the banks' height (a river in its bed, not level with the
-            # land beside it); the mouth keeps the level of the sea, lake or channel it joins
-            fb = np.array([freeboard(w) for w in line[:, 2]])
+            # below the ground by the banks' height: the bed is cut by the recurring flood
+            # (flood_ratio times the mean flow), whose water stands deeper than the mean flow's
+            # by the hydraulic geometry depth law d ~ Q^0.35; the mouth keeps the level of the
+            # sea, lake or channel it joins
+            fb = line[:, 5] * bank_rise_factor(p["flood_ratio"])
             fb[-1] = 0.0
             line[:, 3] = np.maximum(np.minimum.accumulate(u - fb), 0.0)
             lines[i] = line.astype(np.float32)
@@ -578,12 +587,19 @@ class Hydrology(Stage):
                 "first water met": first}
 
 
-def _confluences(lines, joins):
+def bank_rise_factor(flood_ratio):
+    """How much higher than the mean flow's depth the banks stand: the bankfull flood
+    (flood_ratio times the mean discharge) is deeper by the hydraulic geometry depth law
+    d ~ Q^0.35 (Leopold & Maddock 1953)."""
+    return flood_ratio ** 0.35 - 1.0
+
+
+def _confluences(lines, joins, min_len):
     """Tidy the lines that end by joining another channel (`joins`), in place: the last
     stretch of a tributary running alongside the channel it joins is cut, so it meets it
     at an angle at one point instead of doubling it into a lens-shaped bulge (the grid's
     flow runs side by side for a few cells before merging); a tributary shorter than
-    MIN_TRIBUTARY_M from its source to the junction is dropped, as such a short run
+    `min_len` from its source to the junction is dropped, as such a short run
     reaches the river as sheet flow, not as a channel of its own. Returns which lines
     to keep."""
     keep = [True] * len(lines)
@@ -611,7 +627,7 @@ def _confluences(lines, joins):
             if cut < len(a) - 1:
                 lines[i] = np.ascontiguousarray(np.vstack([a[:cut], a[-1:]]))
                 a = lines[i]
-        if np.hypot(np.diff(a[:, 0]), np.diff(a[:, 1])).sum() < MIN_TRIBUTARY_M:
+        if np.hypot(np.diff(a[:, 0]), np.diff(a[:, 1])).sum() < min_len:
             keep[i] = False
     return keep
 
@@ -664,11 +680,13 @@ def water_detail(ctx, data, x_m, y_m, h, extra_segments=None, ponds=None, ids=No
         wgt = np.clip(sf / 0.5, 0, 1)
         wgt = wgt * wgt * (3 - 2 * wgt)
         h = h + wgt * (np.minimum(h, level + 0.25) - h)
+    # streams and rivers in their flood-cut beds; estuaries (sea level, no banks of their
+    # own) without
     segs = data["stream_segments"]
-    if extra_segments is not None and len(extra_segments):
-        segs = np.ascontiguousarray(np.concatenate([segs, extra_segments]), np.float64)
     if len(segs):
-        carve_channels(h, base, x0, y0, step, segs, water)
+        carve_channels(h, base, x0, y0, step, segs, water, float(data["hydrology_params"]["flood_ratio"]))
+    if extra_segments is not None and len(extra_segments):
+        carve_channels(h, base, x0, y0, step, np.ascontiguousarray(extra_segments, np.float64), water, 1.0)
     ponds = data["ponds"] if ponds is None else ponds
     pond = np.zeros(h.shape, np.int32)
     if len(ponds):

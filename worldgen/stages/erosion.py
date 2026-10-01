@@ -28,6 +28,7 @@ from scipy import ndimage
 
 from ..core import colormaps, hydro
 from ..core import lines as lines_mod
+from ..core import repose
 from ..core.memo import memo
 from ..core.params import Float, Int
 from ..core.pointnoise import fbm_at
@@ -44,7 +45,7 @@ def _smoothstep(x):
     return x * x * (3 - 2 * x)
 
 
-MAX_SLOPE_DEG = 70.0     # macro faces stay under the game's steepest repose (rock, 75°)
+MICRO_ROOM_DEG = 5.0     # the macro grid stays this far under rock's repose: room for the micro relief
 
 
 def cap_slope(h, lim, rounds=400):
@@ -204,12 +205,14 @@ class Erosion(Stage):
         tgt = ndimage.gaussian_filter(ndimage.grey_dilation(h0l, footprint=disk), r / 2)
         ratio = ndimage.gaussian_filter(np.clip(tgt / np.maximum(cur, 1.0), 0.3, 6.0), r / 2)
         h = np.where(land, h * ratio, h)
-        # no macro slope steeper than MAX_SLOPE_DEG: the game's steepest ground (rock's repose)
-        # is 75°, and a face steeper than that over hundreds of metres (ranges compressed by
-        # the world scale while keeping their height) cannot be fixed corner by corner in the
-        # export. Relaxed over the whole grid here, so every export block agrees; the micro
-        # relief's own steep spots are capped by the export
-        h = cap_slope(h, dx * np.tan(np.radians(MAX_SLOPE_DEG)))
+        # The matching steepens faces again (most where the world scale compresses ranges that
+        # keep their height), up to 80° on the owner's v2 world. Bedrock faces do stand steeper
+        # than the loop's talus angle (which is loose debris'), and settling them to it would
+        # flatten the compact ranges; the limit is the game's instead: no ground steeper than
+        # rock's angle of repose, the one players are bound by (core/repose.py, read from the
+        # game's tuning), minus MICRO_ROOM_DEG for the micro relief the export adds on top
+        rock_deg = np.degrees(np.arctan(repose.rock_slope()))
+        h = cap_slope(h, dx * np.tan(np.radians(rock_deg - MICRO_ROOM_DEG)))
         h = np.where(land, np.maximum(h, 0.2), np.minimum(h, -0.2))
 
         # lakes: big, deep trapped basins keep water; the rest are breached

@@ -45,31 +45,27 @@ BANK_RISE = 0.5          # river banks rise 0.5 m per metre from the water (abou
 
 
 @nb.njit(cache=True)
-def freeboard(width):
-    """How far a channel's water lies below the ground around it (m): the height of its
-    banks, from a few decimetres for a brook to 2 m for a wide river. The hydrology stage
-    lowers each line's water surface by it, and the carving lets the banks cut that far
-    below the macro ground."""
-    return min(max(0.3 + 0.06 * width, 0.3), 2.0)
-
-
-@nb.njit(cache=True)
-def carve_channels(h, base, x0, y0, step, segs, water):
+def carve_channels(h, base, x0, y0, step, segs, water, flood_ratio):
     """Carve streams and rivers into a detail window. segs rows: ax, ay, bx, by, half
     width, depth, water surface at a, surface at b, reach of the valley floor, head
     (1 = a line's first segment: nothing is carved upslope of its start, where the
     round cap would otherwise notch the hillside above a spring). The
-    surface lies a freeboard below the ground under the line (see the hydrology stage),
-    and carving only lowers the ground: inside the half width a rounded trough under the
-    water surface, 1.5 times the mean depth at its middle (marked in `water`); beyond it
-    a bank rising BANK_RISE per metre from just above the water, down to which the
-    ground is cut, fading out toward the reach, which opens a valley floor where the
+    surface lies below the ground under the line by the banks' height (see the hydrology
+    stage), and carving only lowers the ground. The bed is the one the recurring flood
+    cuts (flood_ratio times the mean flow, hydraulic geometry: width ~ Q^0.5, depth ~
+    Q^0.35): inside the mean flow's half width a rounded trough under the water surface,
+    1.5 times the mean depth at its middle (marked in `water`); out to the flood's half
+    width a low bench rising to the flood's level (bars and banks the floods cover);
+    beyond it a bank rising BANK_RISE per metre, down to which the ground is cut, fading
+    out toward the reach, which opens a valley floor where the
     channel crosses a bump and a small V valley where it runs beside higher ground (the
     bank once stopped at `base`, the macro ground, which left sheer walls of several
     metres wherever the line ran beside the grid's valley; `base` is kept in the
     signature, unused). The nearest channel, in units of each channel's own reach, rules
     each cell."""
     ny, nx = h.shape
+    wide = np.sqrt(flood_ratio)            # flood width over mean width (w ~ Q^0.5)
+    deep = flood_ratio ** 0.35 - 1.0       # flood depth above the mean water, over the mean depth
     best = np.full((ny, nx), 1e30)
     surf = np.zeros((ny, nx))
     hw_at = np.zeros((ny, nx))
@@ -122,8 +118,12 @@ def carve_channels(h, base, x0, y0, step, segs, water):
                 g = min(g, s - 0.05)
                 water[r, c] = True
             else:
-                rise = (d - hw) * BANK_RISE
-                bank = s + 0.1 + rise
+                hwb = hw * wide
+                top = dep_at[r, c] * deep
+                if d < hwb:
+                    bank = s + 0.05 + top * (d - hw) / (hwb - hw)
+                else:
+                    bank = s + 0.05 + top + (d - hwb) * BANK_RISE
                 if g > bank:
                     f = 1.0 - u
                     f = f * f * (3.0 - 2.0 * f)

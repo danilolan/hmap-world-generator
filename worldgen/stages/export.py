@@ -21,7 +21,7 @@ worldgen/export_job.py, run as its own process from the tool's Export button.
 import numpy as np
 from scipy import ndimage
 
-from ..core import colormaps
+from ..core import colormaps, repose
 from ..core.memo import memo
 from ..core.params import Float
 from ..core.pointnoise import fbm_unit
@@ -78,11 +78,10 @@ def tiles(ctx, data, x_m, y_m):
 # dirt 1 m, sand 0.6 m, clay 1 m, gravel 0.3 m, rock 0
 SOIL_DEFAULT_M = np.array([1.0, 0.6, 1.0, 0.3, 0.0])
 # angle of repose per tile ground, as the height difference allowed between neighbouring
-# corners 2 m apart (the game's InteractionTuning defaults, Repose*Units in 0.1 m: dirt
-# 1.7 m (40°), sand 1.1 m (30°), clay 2.4 m (50°), gravel 1.4 m (35°), rock 7.4 m (75°)).
-# The map obeys the same limits players do (Docs/Design/04): nothing is steeper than rock's,
-# and a tile steeper than its own ground's repose is rock. Keep in step with the game.
-REPOSE_M = np.array([1.7, 1.1, 2.4, 1.4, 7.4])
+# corners 2 m apart, read from the game's own tuning (core/repose.py). The map obeys the
+# same limits players do (Docs/Design/04): nothing is steeper than rock's, and a tile
+# steeper than its own ground's repose is rock
+REPOSE_M = repose.REPOSE_M
 REPOSE_ITERATIONS = 32   # fixed, well under the export blocks' margin, so blocks stay seamless
 
 
@@ -159,7 +158,7 @@ def tiles_ground(ctx, data, x_m, y_m):
     g[shore["sand"]] = SAND
     g[shore["shingle"]] = GRAVEL
     g[shore["rocky"] | shore["cliff"]] = ROCK
-    g[shore["marsh"] & (h < 0.6)] = CLAY                                   # mudflats at the tide line
+    g[shore["marsh"] & (h < 0.3 * data["coast_params"]["tide_m"])] = CLAY  # mudflats below mid tide
     # the sea floor: sand in the shallows, mud deeper; rock off cliffs and rocky shores
     depth = -h
     sea_floor = np.where(depth < p["sea_sand_m"] * (1.0 + 0.3 * n1), SAND, CLAY)
@@ -216,7 +215,7 @@ def tiles_cover(ctx, data, x_m, y_m, base, canopy, species, biome=None):
         biome, _, _ = B.classify(f, x_m, y_m, data["biome_params"], ctx.stage_seed(B.Biomes.id))
     cover = COVER_OF[biome]
     cover = np.where((cover == GRASS) & base["dry"], DRY_GRASS, cover)
-    cover = np.where(base["marsh"] & (h >= 0.6), GRASS, cover)
+    cover = np.where(base["marsh"] & (h >= 0.3 * data["coast_params"]["tide_m"]), GRASS, cover)
     shade = canopy / 15.0
     growth = GROWTH_OF[biome] * p["grass"] * (1.0 - (1.0 - p["forest_floor"]) * shade) + 1.5 * n1
     growth = np.where(base["marsh"], np.maximum(growth, 11.0), growth)
